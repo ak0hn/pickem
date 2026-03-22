@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/results/poll",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/picks/lock",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
