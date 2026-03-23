@@ -17,12 +17,12 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=auth_failed`)
   }
 
-  // Check invite
-  const serviceClient = await createServiceClient()
+  // Check invite (case-insensitive email match)
+  const serviceClient = createServiceClient()
   const { data: invite } = await serviceClient
     .from('invites')
     .select('id, accepted_at')
-    .eq('email', user.email!)
+    .ilike('email', user.email!)
     .single()
 
   if (!invite) {
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   }
 
   // Ensure user row exists
-  const { data: existingUser } = await serviceClient
+  const { data: existingUser } = await createServiceClient()
     .from('users')
     .select('id')
     .eq('id', user.id)
