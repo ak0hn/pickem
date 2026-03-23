@@ -83,7 +83,8 @@ A member of the commissioner's friend/family group. The league has ~100 players 
 
 **Authentication & Accounts**
 - [ ] Users can sign in via Google OAuth or email/password — both options are available on the sign-in screen; Facebook and Apple are optional for V1
-- [ ] All sign-in methods are invite-gated — a user must have a valid invite (matched by email) before they can create an account, regardless of which auth method they use
+- [ ] All sign-in methods are invite-gated — the invite email is the key, not the auth method. The app checks the signed-in user's verified email against the `invites` table; if no match exists, access is denied regardless of how they authenticated
+- [ ] Email/password accounts require email verification before access is granted — this ensures a GM cannot sign up with someone else's invited email address
 - [ ] Commissioner can invite players by email; invited players create accounts via the invitation flow using whichever sign-in method they prefer
 - [ ] There is a single commissioner account with elevated permissions
 - [ ] Users cannot self-register without an invitation
