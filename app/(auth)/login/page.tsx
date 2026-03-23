@@ -1,7 +1,7 @@
 'use client'
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 
 const ERROR_MESSAGES: Record<string, string> = {
   no_invite: "You need an invitation to join this league. Contact the commissioner.",
@@ -11,8 +11,17 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 function LoginForm() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const error = searchParams.get('error')
   const token = searchParams.get('invite_token')
+
+  const [mode, setMode] = useState<'choose' | 'signin' | 'signup'>('choose')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   async function signInWithGoogle() {
     const supabase = createClient()
@@ -21,6 +30,74 @@ function LoginForm() {
       provider: 'google',
       options: { redirectTo },
     })
+  }
+
+  async function handleEmailSignIn(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setFormError(null)
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      setFormError('Invalid email or password.')
+      setLoading(false)
+      return
+    }
+    router.push('/home')
+  }
+
+  async function handleEmailSignUp(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setFormError(null)
+    const supabase = createClient()
+
+    // Check invite before creating account
+    const { data: invite } = await supabase
+      .from('invites')
+      .select('id')
+      .eq('email', email.toLowerCase().trim())
+      .is('accepted_at', null)
+      .single()
+
+    if (!invite) {
+      setFormError("This email hasn't been invited to the league. Contact the commissioner.")
+      setLoading(false)
+      return
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email: email.toLowerCase().trim(),
+      password,
+      options: {
+        data: { full_name: name },
+        emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+      },
+    })
+
+    if (error) {
+      setFormError(error.message)
+      setLoading(false)
+      return
+    }
+
+    setSuccessMessage("Check your email for a confirmation link. Click it to complete sign-up.")
+    setLoading(false)
+  }
+
+  if (successMessage) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950">
+        <div className="w-full max-w-sm mx-auto px-6 text-center">
+          <div className="text-4xl mb-4">📬</div>
+          <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
+          <p className="text-gray-400 text-sm">{successMessage}</p>
+          <button onClick={() => { setSuccessMessage(null); setMode('choose') }} className="mt-6 text-sm text-gray-500 hover:text-gray-300">
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -37,13 +114,114 @@ function LoginForm() {
           </div>
         )}
 
-        <button
-          onClick={signInWithGoogle}
-          className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-colors"
-        >
-          <GoogleIcon />
-          Continue with Google
-        </button>
+        {formError && (
+          <div className="mb-4 p-4 rounded-lg bg-red-950 border border-red-800 text-red-300 text-sm">
+            {formError}
+          </div>
+        )}
+
+        {mode === 'choose' && (
+          <div className="space-y-3">
+            <button
+              onClick={signInWithGoogle}
+              className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-colors"
+            >
+              <GoogleIcon />
+              Continue with Google
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-gray-800" />
+              <span className="text-gray-600 text-xs">or</span>
+              <div className="flex-1 h-px bg-gray-800" />
+            </div>
+
+            <button
+              onClick={() => setMode('signin')}
+              className="w-full py-3 px-4 rounded-xl border border-gray-700 text-white font-semibold hover:bg-gray-900 transition-colors"
+            >
+              Sign in with email
+            </button>
+
+            <p className="text-center text-gray-600 text-xs pt-2">
+              First time?{' '}
+              <button onClick={() => setMode('signup')} className="text-gray-400 hover:text-white underline">
+                Create an account
+              </button>
+            </p>
+          </div>
+        )}
+
+        {mode === 'signin' && (
+          <form onSubmit={handleEmailSignIn} className="space-y-3">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl bg-white text-gray-900 font-semibold hover:bg-gray-100 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+            </button>
+            <button type="button" onClick={() => { setMode('choose'); setFormError(null) }} className="w-full text-center text-sm text-gray-500 hover:text-gray-300">
+              Back
+            </button>
+          </form>
+        )}
+
+        {mode === 'signup' && (
+          <form onSubmit={handleEmailSignUp} className="space-y-3">
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+            <input
+              type="email"
+              placeholder="Email (must match your invite)"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+            <input
+              type="password"
+              placeholder="Password (8+ characters)"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              minLength={8}
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl bg-white text-gray-900 font-semibold hover:bg-gray-100 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Creating account...' : 'Create account'}
+            </button>
+            <button type="button" onClick={() => { setMode('choose'); setFormError(null) }} className="w-full text-center text-sm text-gray-500 hover:text-gray-300">
+              Back
+            </button>
+          </form>
+        )}
 
         <p className="text-center text-gray-600 text-xs mt-8">
           Invite-only league. You must be invited by the commissioner.
