@@ -2,15 +2,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const tabs = [
+const playerTabs = [
   { href: '/home', label: 'Feed', icon: '🏠' },
   { href: '/week', label: 'Picks', icon: '🏈' },
   { href: '/standings', label: 'Standings', icon: '🏆' },
-  { href: '/settings', label: 'Settings', icon: '⚙️' },
+  { href: '/profile', label: 'Profile', icon: '👤' },
 ]
 
-export default function BottomNav() {
+const commissionerTab = { href: '/commissioner', label: 'Commissioner', icon: '⚡' }
+
+export default function BottomNav({ isCommissioner }: { isCommissioner: boolean }) {
   const pathname = usePathname()
+  const tabs = isCommissioner ? [...playerTabs, commissionerTab] : playerTabs
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 max-w-lg mx-auto">
       <div className="flex">

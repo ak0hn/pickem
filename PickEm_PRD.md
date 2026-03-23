@@ -1,6 +1,6 @@
 # PickEm — Product Requirements Document
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** March 2026
 **Author:** Alex Koh
 **Status:** Ready for engineering handoff
@@ -194,7 +194,7 @@ Formal Given-When-Then criteria for the four flows where getting the behavior wr
 | AC-1 | A player has not yet picked for Game X, and Game X's kickoff is in the future | The player selects a team for Game X | The pick is saved. The player's pick count increments. The pick is shown as "pending" (editable). |
 | AC-2 | A player has an existing pick for Game X, and Game X's kickoff is in the future | The player selects the other team for Game X | The pick is overwritten (upsert). The previous selection is replaced. Pick count stays the same. |
 | AC-3 | A player has a pick for Game X, and Game X's kickoff time has passed | The player attempts to change their pick for Game X | The UI shows the pick as locked (greyed out, lock icon). The server rejects any API call with a 403. The pick is unchanged. |
-| AC-4 | A player has submitted 6 picks for this week | The player tries to add a 7th pick | The UI does not allow selection of additional games. If attempted via API, the server rejects with a 400. |
+| AC-4 | A player has submitted 6 picks for this week | The player tries to add a 7th pick | ⚠️ **Under review** — see Open Question #9. Current behavior allows picking beyond 6; exact enforcement and UX TBD. |
 | AC-5 | A player has submitted 3 picks. The remaining games they haven't picked all have future kickoff times. | The player opens the Current Week screen | The screen shows 3 submitted picks (editable) and the remaining available games. A badge reads "3 of 6 picks made." |
 | AC-6 | A player has submitted 4 picks. The 2 unpicked games have already kicked off. | The player opens the Current Week screen | The screen shows 4 submitted picks (some locked, some pending depending on kickoff) and 2 unpickable games (greyed out). A message reads "4 picks submitted — 2 games no longer available." |
 
@@ -256,7 +256,7 @@ Formal Given-When-Then criteria for the four flows where getting the behavior wr
 
 ## High-Level Screen Architecture
 
-The app has five primary screens, accessible via a bottom navigation bar (mobile) or top nav (web).
+The app has five primary screens for players, plus a sixth Commissioner screen that is only visible to the league commissioner. All screens are accessible via a bottom navigation bar (mobile) or top nav (web).
 
 ---
 
@@ -289,14 +289,7 @@ The app has five primary screens, accessible via a bottom navigation bar (mobile
 - "Your week so far" summary: X of 6 picked, X results in, still alive / eliminated for the weekly prize
 
 **Admin extras:**
-- Submission tracker: see how many players have submitted full picks, partial picks, or no picks for the week — with a list view per player
-- Results are fetched and applied automatically — no manual entry needed. Commissioner gets a confirmation view once results are in.
-- Manual result override: if the API returns an incorrect result, commissioner can correct it and the correction propagates to all affected picks
-- After Sunday games resolve, if perfect players exceed the tiebreaker threshold, the app surfaces a prompt to post the MNF line and open the tiebreaker window
-- Official results announcement: commissioner posts the week's results + commentary to close the week; this action finalizes results in the app
-- Ability to void a game pick (in case of postponement) and open a replacement window
-- "Fetch this week's lines" button on Thursday to pull spreads from The Odds API and populate the slate; commissioner reviews and publishes
-- Ability to edit the slate (correct a spread) before any picks are locked for that game
+- A "picks submitted" count badge at the top (e.g., "47 of 100 players have submitted full picks") with a link to the full submission tracker in the Commissioner page
 
 **Who uses it:** All players, primarily Thursday through Monday each week.
 
@@ -306,56 +299,66 @@ The app has five primary screens, accessible via a bottom navigation bar (mobile
 **Purpose:** The competitive layer. See how everyone stacks up.
 
 **What lives here:**
-- **Weekly standings:** Who went 6-for-6 this week (winner(s)), everyone else's pick count for the week
-- **Season standings:** Cumulative record across all weeks — total correct picks, number of weekly wins, overall rank
-- **Player list:** Who's in the league (name, avatar, season record at a glance)
-- Picks comparison view (P1): after the week ends, see how everyone picked side-by-side
-
-**Admin extras:**
-- Manage members: invite new players by email, remove a player, or view pending invites
-- Toggle to show/hide a player from standings (e.g., if someone drops out mid-season)
+- Tabbed layout: **This Week** | **Season** | **History**
+- **This Week tab:** Who went 6-for-6 this week (winner(s)), everyone else's pick count for the week; picks comparison view (P1) after the week ends
+- **Season tab:** Cumulative record across all weeks — total correct picks, number of weekly wins, overall rank
+- **History tab (V1.1):** Multi-season records and aggregate stats — bet type breakdown (home fav, away dog, etc.), time slot breakdown (Thursday / Sunday 1pm / 4pm / SNF), team-by-team ATS record
 
 **Who uses it:** Everyone, especially on Mondays after the last game and mid-season as standings tighten.
 
 ---
 
 ### 4. Profile
-**Purpose:** A player's personal performance view.
+**Purpose:** A player's personal performance view and account hub.
 
-**What lives here (V1):**
+**What lives here:**
 - Season-to-date stats: overall W/L/Push record, win %, weekly win count, total picks made
 - Best and worst weeks of the season
 - Full pick history by week — expandable breakdown of each week's picks and results with W/L per pick
 - Comparison prompt: "How do you stack up?" linking to the Standings screen
-
-**V1.1 stats additions** *(computable from existing data, no schema changes needed):*
-- **Bet type breakdown** — separate record for Home Favs, Away Favs, Home Dogs, Away Dogs (how each player performs by bet type)
-- **Time slot breakdown** — record by game window: Thursday, Saturday, Sunday early (1pm), Sunday afternoon (4pm), Sunday night (8pm)
-- **Team-by-team record** — for every NFL team a player has picked, their W/L/Push/% against that team across the season
-- **League-wide pick distribution** — for each game, what % of the league picked home vs. away (visible after week closes)
+- **Settings section** (within Profile, not a separate nav item):
+  - Profile info (name, avatar)
+  - Notification preferences (toggle on/off per type: new announcements, pick reminders, results posted)
+  - Account settings (email, OAuth connections, password if applicable)
+  - Sign out
 
 **Admin extras (when viewing any player's profile):**
 - Full pick history visible regardless of week status (admin can always see all picks)
-- Quick action to send a nudge notification to a player who hasn't submitted picks
 
-**Who uses it:** Players checking their own stats. Also visible to others (read-only) — a player can tap another player's name in Standings to see their profile.
+**Who uses it:** Players checking their own stats. Also visible to others (read-only) — a player can tap another player's name in Standings to see their profile. Settings accessed infrequently — mostly at setup and to adjust notifications.
 
 ---
 
-### 5. Settings / Account
-**Purpose:** Account management and preferences.
+### 5. Commissioner
+**Purpose:** The commissioner's operational hub. Not visible to regular players.
 
-**What lives here:**
-- Profile info (name, avatar)
-- Notification preferences (toggle on/off per notification type: new announcements, pick reminders, results posted)
-- Account settings (email, OAuth connections, password if applicable)
-- Sign out
+The commissioner's workflow follows a predictable weekly rhythm. This page is organized around that rhythm — the right actions are surfaced at the right moment based on the current week's status.
 
-**Admin extras:**
-- League settings: season name, prize amounts (display only — for reference), current week number, MNF tiebreaker threshold (set once before the season, fixed for the year), minimum posting window before Thursday kickoff (commissioner reminder deadline)
-- Notification controls: send a broadcast push notification to all league members (for urgent updates)
+**This Week section (primary — changes each stage of the week):**
 
-**Who uses it:** Infrequently — mostly at setup and when a player wants to adjust notifications.
+| Week status | What the commissioner sees |
+|-------------|---------------------------|
+| `pending` (no slate yet) | "Fetch this week's lines" button — pulls spreads from The Odds API; commissioner reviews, edits if needed, then publishes. Publishing posts the slate announcement to the Feed and notifies all players. |
+| `open` (picks live) | Pick submission tracker: total full / partial / no picks submitted, with per-player drilldown and ability to send nudge notifications to individuals. Ability to edit the slate (correct a spread) before any picks lock for that game. |
+| `sunday_complete` (all results in) | Results dashboard: game-by-game results with manual override per game. "Confirm provisional results" action — shows who's perfect, prompts tiebreaker decision. |
+| `tiebreaker` | Post MNF line + announcement. Eligible players listed. |
+| `results_posted` / `closed` | Post official results announcement. Once posted, week closes and all picks become visible to all players. |
+
+**Postponement handling:** If a game is cancelled or postponed after picks lock, the commissioner can void that pick and open a replacement window for affected players.
+
+**Invites & Players tab:**
+- Invite a player by email
+- View pending invites (resend or revoke)
+- Full player roster with the ability to toggle a player's visibility in standings (e.g., if someone drops out mid-season) or remove them entirely
+
+**League Settings tab** *(configured once before the season, rarely changed):*
+- Season name and year
+- MNF tiebreaker threshold (e.g., "more than 3 winners = tiebreaker")
+- Prize display amounts (weekly and season — display only, not processed in-app)
+- Commissioner reminder deadline (minimum window before Thursday kickoff before the reminder fires)
+- Broadcast push notification to all league members (for urgent updates outside the normal announcement flow)
+
+**Who uses it:** Commissioner only. Displayed as a fifth bottom nav item only when `role === 'commissioner'`. Regular players never see this screen or nav item.
 
 ---
 
@@ -367,15 +370,15 @@ The primary experience is mobile. The league skews toward mobile users, and the 
 The solution is a single UI built for mobile, centered in the middle of the screen on desktop — not a wide layout designed for large screens. Think Instagram or Twitter on a laptop: it's the mobile column, just with more whitespace on the sides. This means we build one design, not two, and desktop users get a clean, readable experience without us doing any extra work for them.
 
 **Navigation:**
-- **Mobile:** Bottom navigation bar — Home, This Week, Standings, Profile. Settings accessible via Profile.
-- **Desktop/web:** Same five destinations, rendered as a left sidebar or top nav depending on screen width. The content column stays centered and capped at a mobile-friendly width (~480px max).
-- **Badge on "This Week" nav item** when a player has unfilled picks and games are approaching — the visual nudge that replaces a push notification for users who haven't installed the PWA.
+- **Mobile:** Bottom navigation bar with four items for all players — **Feed | Picks | Standings | Profile**. Settings is accessible within Profile (not a nav item). For the commissioner, a fifth item — **Commissioner** — appears at the end of the nav bar. Regular players never see it.
+- **Desktop/web:** Same destinations, rendered as a left sidebar or top nav depending on screen width. The content column stays centered and capped at a mobile-friendly width (~480px max).
+- **Badge on "Picks" nav item** when a player has unfilled picks and games are approaching — the visual nudge that replaces a push notification for users who haven't installed the PWA.
 
 **PWA install prompt:**
 - On first visit via mobile browser, prompt users to "Add to Home Screen" so the app lives on their phone like a native app.
 - For desktop users, a browser install prompt is available but not pushed — the web experience is sufficient for that audience.
 
-**Admin extras** are surfaced inline within each screen — the commissioner uses the same nav and layout as everyone else, with elevated controls layered on top. No separate admin mode or separate URL to navigate to.
+**Commissioner access:** The commissioner uses the same nav and layout as all players for the four shared screens. Commissioner-specific tools live exclusively in the Commissioner screen — there are no elevated controls scattered across the player-facing screens, with one exception: a "picks submitted" count badge on the Picks screen links through to the full submission tracker in the Commissioner screen.
 
 ---
 
@@ -414,6 +417,7 @@ The solution is a single UI built for mobile, centered in the middle of the scre
 | 6 | ~~League size~~ **Resolved:** ~100 players (confirmed from 2025 season data). Standings, feed, and performance at scale are core design considerations, not afterthoughts. | ✅ Resolved | — |
 | 7 | ~~Push notification type~~ **Resolved:** Web push for V1. Native app push notifications are V2, alongside native iOS/Android apps. Players can configure notification preferences in Settings. | ✅ Resolved | — |
 | 8 | What API/cost approach for live in-game scores? Revisit before V1.1. The Odds API may have a paid tier for live data; alternatives include Sportradar or ESPN unofficial. | Alex + Claude | Blocks V1.1 live scores only |
+| 9 | **Pick count flexibility:** Should the app enforce exactly 6 picks, or allow players to select more than 6 and trim down before kickoff? The current email workflow supports "loading up" picks and narrowing — the UX for browsing, selecting a pool of picks, and then editing down to the final 6 needs design work before we build it. A heavy-handed enforcement model could add friction and turn players off. | Alex + Claude | Does not block core pick flow; blocks final pick count UX decision |
 
 ---
 
