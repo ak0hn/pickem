@@ -1,4 +1,5 @@
 'use client'
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useSearchParams } from 'next/navigation'
 
@@ -8,7 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_code: "Something went wrong. Please try again.",
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const searchParams = useSearchParams()
   const error = searchParams.get('error')
   const token = searchParams.get('invite_token')
@@ -49,6 +50,14 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }
 

@@ -1,13 +1,14 @@
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
 
-export default async function InvitePage({ params }: { params: { token: string } }) {
+export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params
   const supabase = await createServiceClient()
 
   const { data: invite } = await supabase
     .from('invites')
     .select('id, email, accepted_at')
-    .eq('token', params.token)
+    .eq('token', token)
     .single()
 
   if (!invite) {
@@ -25,5 +26,5 @@ export default async function InvitePage({ params }: { params: { token: string }
     redirect('/login')
   }
 
-  redirect(`/login?invite_token=${params.token}`)
+  redirect(`/login?invite_token=${token}`)
 }
