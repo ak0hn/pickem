@@ -38,15 +38,16 @@ export default async function WeekPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Fetch the current open week (latest by week_number)
+  // Fetch the most recent open or pending week
   const { data: weeks } = await supabase
     .from('weeks')
     .select('*')
-    .eq('status', 'open')
+    .in('status', ['open', 'pending'])
     .order('week_number', { ascending: false })
     .limit(1)
 
   const week: Week | null = weeks?.[0] ?? null
+  const canPick = week?.status === 'open'
 
   if (!week) {
     return (
@@ -103,6 +104,7 @@ export default async function WeekPage() {
       userPicks={userPicks}
       userId={user?.id ?? null}
       pickCount={pickCount}
+      canPick={canPick}
     />
   )
 }

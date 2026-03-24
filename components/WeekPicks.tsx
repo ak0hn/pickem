@@ -5,6 +5,7 @@ import Image from 'next/image'
 import type { Week, Game, Pick } from '@/app/(app)/week/page'
 
 type UserPicksMap = Record<string, Pick>
+type LocalPicks = Record<string, 'home' | 'away'>
 
 type Props = {
   week: Week
@@ -12,42 +13,28 @@ type Props = {
   userPicks: UserPicksMap
   userId: string | null
   pickCount: number
+  canPick: boolean
 }
 
-// Short names (as typically stored in DB) and full names → ESPN abbreviation
+// ── Team logos ────────────────────────────────────────────────────────────────
+
 const NFL_LOGOS: Record<string, string> = {
-  Cardinals: 'ari',        'Arizona Cardinals': 'ari',
-  Falcons: 'atl',          'Atlanta Falcons': 'atl',
-  Ravens: 'bal',           'Baltimore Ravens': 'bal',
-  Bills: 'buf',            'Buffalo Bills': 'buf',
-  Panthers: 'car',         'Carolina Panthers': 'car',
-  Bears: 'chi',            'Chicago Bears': 'chi',
-  Bengals: 'cin',          'Cincinnati Bengals': 'cin',
-  Browns: 'cle',           'Cleveland Browns': 'cle',
-  Cowboys: 'dal',          'Dallas Cowboys': 'dal',
-  Broncos: 'den',          'Denver Broncos': 'den',
-  Lions: 'det',            'Detroit Lions': 'det',
-  Packers: 'gb',           'Green Bay Packers': 'gb',
-  Texans: 'hou',           'Houston Texans': 'hou',
-  Colts: 'ind',            'Indianapolis Colts': 'ind',
-  Jaguars: 'jax',          'Jacksonville Jaguars': 'jax',
-  Chiefs: 'kc',            'Kansas City Chiefs': 'kc',
-  Raiders: 'lv',           'Las Vegas Raiders': 'lv',
-  Chargers: 'lac',         'Los Angeles Chargers': 'lac',
-  Rams: 'lar',             'Los Angeles Rams': 'lar',
-  Dolphins: 'mia',         'Miami Dolphins': 'mia',
-  Vikings: 'min',          'Minnesota Vikings': 'min',
-  Patriots: 'ne',          'New England Patriots': 'ne',
-  Saints: 'no',            'New Orleans Saints': 'no',
-  Giants: 'nyg',           'New York Giants': 'nyg',
-  Jets: 'nyj',             'New York Jets': 'nyj',
-  Eagles: 'phi',           'Philadelphia Eagles': 'phi',
-  Steelers: 'pit',         'Pittsburgh Steelers': 'pit',
-  '49ers': 'sf',           'San Francisco 49ers': 'sf',
-  Seahawks: 'sea',         'Seattle Seahawks': 'sea',
-  Buccaneers: 'tb',        'Tampa Bay Buccaneers': 'tb',
-  Titans: 'ten',           'Tennessee Titans': 'ten',
-  Commanders: 'wsh',       'Washington Commanders': 'wsh',
+  'Arizona Cardinals': 'ari',   'Atlanta Falcons': 'atl',
+  'Baltimore Ravens': 'bal',    'Buffalo Bills': 'buf',
+  'Carolina Panthers': 'car',   'Chicago Bears': 'chi',
+  'Cincinnati Bengals': 'cin',  'Cleveland Browns': 'cle',
+  'Dallas Cowboys': 'dal',      'Denver Broncos': 'den',
+  'Detroit Lions': 'det',       'Green Bay Packers': 'gb',
+  'Houston Texans': 'hou',      'Indianapolis Colts': 'ind',
+  'Jacksonville Jaguars': 'jax','Kansas City Chiefs': 'kc',
+  'Las Vegas Raiders': 'lv',    'Los Angeles Chargers': 'lac',
+  'Los Angeles Rams': 'lar',    'Miami Dolphins': 'mia',
+  'Minnesota Vikings': 'min',   'New England Patriots': 'ne',
+  'New Orleans Saints': 'no',   'New York Giants': 'nyg',
+  'New York Jets': 'nyj',       'Philadelphia Eagles': 'phi',
+  'Pittsburgh Steelers': 'pit', 'San Francisco 49ers': 'sf',
+  'Seattle Seahawks': 'sea',    'Tampa Bay Buccaneers': 'tb',
+  'Tennessee Titans': 'ten',    'Washington Commanders': 'wsh',
 }
 
 function getLogoUrl(teamName: string): string | null {
@@ -62,205 +49,176 @@ function formatTime(kickoffTime: string): string {
     minute: '2-digit',
     hour12: true,
     timeZone: 'America/New_York',
+  }).replace(':00', '') + ' ET'
+}
+
+function formatDay(kickoffTime: string): string {
+  return new Date(kickoffTime).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
   })
 }
 
-function getSpreadLabel(game: Game, side: 'home' | 'away'): string {
-  const teamName = side === 'home' ? game.home_team : game.away_team
-  const isFavored = game.spread_favorite === side || game.spread_favorite === teamName
-
-  if (game.spread == null || game.spread === 0) return teamName
-  if (isFavored) return `${teamName} -${Math.abs(game.spread)}`
-  return `${teamName} +${Math.abs(game.spread)}`
+function spreadLabel(game: Game, side: 'home' | 'away'): string | null {
+  if (!game.spread || game.spread === 0) return null
+  const isFav = game.spread_favorite === side
+  return isFav ? `-${game.spread}` : `+${game.spread}`
 }
 
-function getResultIcon(result: string): string {
+function resultIcon(result: string): string {
   if (result === 'win') return '✅'
   if (result === 'loss') return '❌'
   if (result === 'push') return '➖'
   return ''
 }
 
-function getWeekStatus(
-  games: Game[],
-  userPicks: UserPicksMap,
-  pickCount: number
-): { show: boolean; label: string; color: string } {
-  const picksWithResults = Object.values(userPicks).filter(
-    (p) => p.result && p.result !== 'pending'
-  )
-  if (picksWithResults.length === 0) return { show: false, label: '', color: '' }
-
-  const wins = picksWithResults.filter((p) => p.result === 'win').length
-  const losses = picksWithResults.filter((p) => p.result === 'loss').length
-  const totalResolved = picksWithResults.length
-
-  if (losses > 0) return { show: true, label: 'Eliminated', color: 'text-red-400' }
-  if (totalResolved === pickCount && wins === pickCount)
-    return { show: true, label: 'Perfect week!', color: 'text-yellow-400' }
-  return { show: true, label: 'Still alive', color: 'text-green-400' }
-}
-
 // ── Grouping ──────────────────────────────────────────────────────────────────
 
 type TimeGroup = { label: string; games: Game[] }
-type DayGroup = {
-  dayLabel: string
-  dayKey: string
-  timeGroups: TimeGroup[]
-  multipleSlots: boolean
-}
+type DayGroup = { dayLabel: string; dayKey: string; timeGroups: TimeGroup[]; multipleSlots: boolean }
 
 function groupGames(games: Game[]): DayGroup[] {
   const dayMap = new Map<string, Game[]>()
-
   for (const game of games) {
-    const dayKey = new Date(game.kickoff_time).toLocaleDateString('en-US', {
-      timeZone: 'America/New_York',
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric',
-    })
-    if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
-    dayMap.get(dayKey)!.push(game)
+    const key = formatDay(game.kickoff_time)
+    if (!dayMap.has(key)) dayMap.set(key, [])
+    dayMap.get(key)!.push(game)
   }
-
   return Array.from(dayMap.entries()).map(([dayKey, dayGames]) => {
     const hourMap = new Map<number, Game[]>()
-
     for (const game of dayGames) {
-      // Extract ET hour as a number for bucketing
-      const etHour = Number(
-        new Date(game.kickoff_time).toLocaleString('en-US', {
-          timeZone: 'America/New_York',
-          hour: 'numeric',
-          hour12: false,
-        })
-      )
-      if (!hourMap.has(etHour)) hourMap.set(etHour, [])
-      hourMap.get(etHour)!.push(game)
+      const h = Number(new Date(game.kickoff_time).toLocaleString('en-US', {
+        timeZone: 'America/New_York', hour: 'numeric', hour12: false,
+      }))
+      if (!hourMap.has(h)) hourMap.set(h, [])
+      hourMap.get(h)!.push(game)
     }
-
     const timeGroups: TimeGroup[] = Array.from(hourMap.entries())
       .sort(([a], [b]) => a - b)
-      .map(([, slotGames]) => ({
-        label: `${formatTime(slotGames[0].kickoff_time)} ET`,
-        games: slotGames,
-      }))
-
+      .map(([, slotGames]) => ({ label: formatTime(slotGames[0].kickoff_time), games: slotGames }))
     return { dayLabel: dayKey, dayKey, timeGroups, multipleSlots: timeGroups.length > 1 }
   })
 }
 
-// ── GameCard ──────────────────────────────────────────────────────────────────
+// ── GameCard (picking phase) ──────────────────────────────────────────────────
 
-type GameCardProps = {
-  game: Game
-  pick: Pick | undefined
+function TeamSide({
+  team, side, isFav, spread, picked, canPick, onPick, gameId,
+}: {
+  team: string
+  side: 'home' | 'away'
+  isFav: boolean
+  spread: string | null
+  picked: boolean
+  canPick: boolean
   onPick: (gameId: string, side: 'home' | 'away') => void
-  pendingSide: 'home' | 'away' | null
+  gameId: string
+}) {
+  const logoUrl = getLogoUrl(team)
+  let bg = ''
+  if (picked) bg = 'bg-blue-900/50'
+
+  return (
+    <button
+      onClick={() => canPick && onPick(gameId, side)}
+      disabled={!canPick}
+      className={`flex-1 flex flex-col items-center gap-1.5 py-4 px-2 transition-colors ${bg} ${!canPick ? 'cursor-default' : 'active:opacity-70'}`}
+    >
+      {logoUrl ? (
+        <Image src={logoUrl} alt={team} width={44} height={44} unoptimized className="object-contain" />
+      ) : (
+        <div className="w-11 h-11 rounded-full bg-gray-800 flex items-center justify-center text-xs text-gray-500">
+          {team.slice(0, 3).toUpperCase()}
+        </div>
+      )}
+      <div className="text-sm font-semibold text-white text-center leading-tight px-1">{team}</div>
+      {spread ? (
+        <div className={`text-xs font-medium ${picked ? 'text-blue-300' : 'text-gray-400'}`}>{spread}</div>
+      ) : (
+        <div className="text-xs text-gray-700">—</div>
+      )}
+      <div className="text-xs text-gray-600">{side === 'away' ? 'Away' : 'Home'}</div>
+    </button>
+  )
 }
 
-function GameCard({ game, pick, onPick, pendingSide }: GameCardProps) {
-  const isLocked = new Date(game.kickoff_time) <= new Date()
-  const hasResult = pick && pick.result && pick.result !== 'pending'
-  const pickedSide = pick?.picked_team ?? null
+function GameCard({
+  game, localPick, onPick, canPick,
+}: {
+  game: Game
+  localPick: 'home' | 'away' | undefined
+  onPick: (gameId: string, side: 'home' | 'away') => void
+  canPick: boolean
+}) {
+  const awaySpread = spreadLabel(game, 'away')
+  const homeSpread = spreadLabel(game, 'home')
 
-  const awayLogoUrl = getLogoUrl(game.away_team)
-  const homeLogoUrl = getLogoUrl(game.home_team)
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="px-4 pt-2.5 pb-1 text-xs text-gray-600 font-medium">
+        {formatTime(game.kickoff_time)}
+      </div>
+      <div className="flex divide-x divide-gray-800">
+        <TeamSide
+          team={game.away_team} side="away"
+          isFav={game.spread_favorite === 'away'}
+          spread={awaySpread}
+          picked={localPick === 'away'}
+          canPick={canPick}
+          onPick={onPick}
+          gameId={game.id}
+        />
+        <TeamSide
+          team={game.home_team} side="home"
+          isFav={game.spread_favorite === 'home'}
+          spread={homeSpread}
+          picked={localPick === 'home'}
+          canPick={canPick}
+          onPick={onPick}
+          gameId={game.id}
+        />
+      </div>
+    </div>
+  )
+}
 
-  const lockTooltip = 'Game has already started — picks are locked'
+// ── SubmittedGameCard (post-submit) ───────────────────────────────────────────
 
-  function buttonClass(side: 'home' | 'away'): string {
-    const base = 'flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-150'
-    if (isLocked) {
-      if (pickedSide === side) return base + ' bg-blue-950 text-blue-400 opacity-70 cursor-not-allowed'
-      return base + ' bg-gray-800 text-gray-600 cursor-not-allowed'
-    }
-    if (pendingSide === side) return base + ' bg-blue-600 text-white opacity-70 cursor-not-allowed'
-    if (pickedSide === null) return base + ' bg-gray-700 hover:bg-gray-600 text-white'
-    if (pickedSide === side) return base + ' bg-blue-600 text-white'
-    return base + ' bg-gray-800 text-gray-500 hover:bg-gray-700'
+function SubmittedGameCard({ game, pick }: { game: Game; pick: Pick }) {
+  const pickedSide = pick.picked_team
+  const pickedTeam = pickedSide === 'home' ? game.home_team : game.away_team
+  const otherTeam = pickedSide === 'home' ? game.away_team : game.home_team
+  const pickedLogo = getLogoUrl(pickedTeam)
+  const sp = spreadLabel(game, pickedSide)
+  const hasResult = pick.result && pick.result !== 'pending'
+
+  let bg = 'bg-gray-900'
+  let border = 'border-gray-800'
+  if (hasResult) {
+    if (pick.result === 'win') { bg = 'bg-green-900/20'; border = 'border-green-800/40' }
+    else if (pick.result === 'loss') { bg = 'bg-red-900/20'; border = 'border-red-800/40' }
+    else if (pick.result === 'push') { bg = 'bg-gray-800/40'; border = 'border-gray-700' }
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-      {/* Kickoff time + lock indicator */}
-      <div className="text-xs text-gray-600 font-medium">
-        {formatTime(game.kickoff_time)} ET
-        {isLocked && <span className="ml-2">🔒 Locked</span>}
-      </div>
-
-      {/* Teams row */}
-      <div className="flex items-center gap-2">
-        {/* Away */}
-        <div className="flex-1 text-center">
-          {awayLogoUrl && (
-            <Image
-              src={awayLogoUrl}
-              alt={game.away_team}
-              width={40}
-              height={40}
-              className="mx-auto mb-1"
-              unoptimized
-            />
-          )}
-          <div className="text-sm font-semibold text-white">{getSpreadLabel(game, 'away')}</div>
-          <div className="text-xs text-gray-500">Away</div>
+    <div className={`${bg} border ${border} rounded-xl p-4 flex items-center gap-3`}>
+      {pickedLogo ? (
+        <Image src={pickedLogo} alt={pickedTeam} width={40} height={40} unoptimized className="object-contain flex-shrink-0" />
+      ) : (
+        <div className="w-10 h-10 rounded-full bg-gray-800 flex-shrink-0" />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-white">{pickedTeam}</span>
+          {sp && <span className="text-xs text-gray-400">{sp}</span>}
+          {hasResult && <span>{resultIcon(pick.result)}</span>}
         </div>
-
-        <div className="text-gray-600 font-bold text-sm">vs</div>
-
-        {/* Home */}
-        <div className="flex-1 text-center">
-          {homeLogoUrl && (
-            <Image
-              src={homeLogoUrl}
-              alt={game.home_team}
-              width={40}
-              height={40}
-              className="mx-auto mb-1"
-              unoptimized
-            />
-          )}
-          <div className="text-sm font-semibold text-white">{getSpreadLabel(game, 'home')}</div>
-          <div className="text-xs text-gray-500">Home</div>
+        <div className="text-xs text-gray-500 mt-0.5">
+          vs {otherTeam} · {formatTime(game.kickoff_time)}
         </div>
-      </div>
-
-      {/* Pick buttons — always shown; disabled with tooltip when locked */}
-      <div className="flex gap-2">
-        <button
-          className={buttonClass('away')}
-          onClick={() => !isLocked && !pendingSide && onPick(game.id, 'away')}
-          disabled={isLocked || !!pendingSide}
-          title={isLocked ? lockTooltip : undefined}
-          aria-pressed={pickedSide === 'away'}
-        >
-          {pendingSide === 'away' && (
-            <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1 align-middle" />
-          )}
-          Pick Away
-          {pickedSide === 'away' && hasResult && (
-            <span className="ml-1">{getResultIcon(pick!.result)}</span>
-          )}
-        </button>
-
-        <button
-          className={buttonClass('home')}
-          onClick={() => !isLocked && !pendingSide && onPick(game.id, 'home')}
-          disabled={isLocked || !!pendingSide}
-          title={isLocked ? lockTooltip : undefined}
-          aria-pressed={pickedSide === 'home'}
-        >
-          {pendingSide === 'home' && (
-            <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1 align-middle" />
-          )}
-          Pick Home
-          {pickedSide === 'home' && hasResult && (
-            <span className="ml-1">{getResultIcon(pick!.result)}</span>
-          )}
-        </button>
+        {!hasResult && <div className="text-xs text-gray-700 mt-0.5">Pending result</div>}
       </div>
     </div>
   )
@@ -268,212 +226,155 @@ function GameCard({ game, pick, onPick, pendingSide }: GameCardProps) {
 
 // ── WeekPicks ─────────────────────────────────────────────────────────────────
 
-export default function WeekPicks({ week, games, userPicks, userId, pickCount }: Props) {
-  const [picks, setPicks] = useState<UserPicksMap>(userPicks)
-  const [pending, setPending] = useState<Record<string, 'home' | 'away'>>({})
+export default function WeekPicks({ week, games, userPicks, userId, pickCount, canPick }: Props) {
   const [, startTransition] = useTransition()
+  const [submitting, setSubmitting] = useState(false)
+
+  const initialSubmitted = Object.keys(userPicks).length > 0
+  const [submitted, setSubmitted] = useState(initialSubmitted)
+  const [savedPicks, setSavedPicks] = useState<UserPicksMap>(userPicks)
+
+  // Local picks buffer — starts from existing server picks if any
+  const [localPicks, setLocalPicks] = useState<LocalPicks>(() => {
+    const lp: LocalPicks = {}
+    for (const [gid, pick] of Object.entries(userPicks)) {
+      lp[gid] = pick.picked_team
+    }
+    return lp
+  })
 
   const dayGroups = groupGames(games)
+  const madeCount = Object.keys(localPicks).length
+  const readyToSubmit = madeCount >= pickCount
 
-  // All days open by default
-  const [openDays, setOpenDays] = useState<Set<string>>(
-    () => new Set(dayGroups.map((g) => g.dayKey))
-  )
-
-  // All time slots open by default — keyed by "dayKey|timeLabel"
-  const [openSlots, setOpenSlots] = useState<Set<string>>(
-    () =>
-      new Set(
-        dayGroups.flatMap((g) => g.timeGroups.map((t) => `${g.dayKey}|${t.label}`))
-      )
-  )
-
-  function toggleSlot(dayKey: string, slotLabel: string) {
-    const key = `${dayKey}|${slotLabel}`
-    setOpenSlots((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+  function handlePick(gameId: string, side: 'home' | 'away') {
+    if (submitted || !canPick) return
+    setLocalPicks((prev) => {
+      const next = { ...prev }
+      if (next[gameId] === side) delete next[gameId]
+      else next[gameId] = side
       return next
     })
   }
 
-  const madePicksCount = Object.keys(picks).length
-  const weekStatus = getWeekStatus(games, picks, pickCount)
+  async function handleSubmit() {
+    if (!userId || submitting) return
+    setSubmitting(true)
 
-  function toggleDay(dayKey: string) {
-    setOpenDays((prev) => {
-      const next = new Set(prev)
-      if (next.has(dayKey)) next.delete(dayKey)
-      else next.add(dayKey)
-      return next
-    })
-  }
-
-  async function handlePick(gameId: string, side: 'home' | 'away') {
-    if (!userId) return
-
-    const previousPick = picks[gameId]
-
-    // Tapping the already-selected side unselects it
-    if (previousPick?.picked_team === side) {
-      setPending((prev) => ({ ...prev, [gameId]: side }))
-      startTransition(() => setPicks((prev) => { const next = { ...prev }; delete next[gameId]; return next }))
-
-      try {
-        const res = await fetch('/api/picks/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gameId }),
-        })
-        if (!res.ok) {
-          // Revert
-          startTransition(() => setPicks((prev) => ({ ...prev, [gameId]: previousPick })))
-        }
-      } catch {
-        startTransition(() => setPicks((prev) => ({ ...prev, [gameId]: previousPick })))
-      } finally {
-        setPending((prev) => { const next = { ...prev }; delete next[gameId]; return next })
-      }
-      return
-    }
-
-    // Selecting a new side
-    const optimisticPick: Pick = {
-      id: previousPick?.id ?? '',
-      game_id: gameId,
-      picked_team: side,
-      result: previousPick?.result ?? 'pending',
-      locked_at: previousPick?.locked_at ?? null,
-    }
-
-    setPending((prev) => ({ ...prev, [gameId]: side }))
-    setPicks((prev) => ({ ...prev, [gameId]: optimisticPick }))
-
+    const entries = Object.entries(localPicks)
     try {
-      const res = await fetch('/api/picks/upsert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, pickedTeam: side }),
-      })
+      const results = await Promise.all(
+        entries.map(([gameId, pickedTeam]) =>
+          fetch('/api/picks/upsert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gameId, pickedTeam }),
+          }).then((r) => r.json())
+        )
+      )
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        console.error('Pick upsert failed:', body)
-        startTransition(() => {
-          setPicks((prev) => {
-            const next = { ...prev }
-            if (previousPick) next[gameId] = previousPick
-            else delete next[gameId]
-            return next
-          })
-        })
-      } else {
-        const { pick: savedPick } = await res.json()
-        startTransition(() => {
-          setPicks((prev) => ({
-            ...prev,
-            [gameId]: {
-              ...optimisticPick,
-              id: savedPick?.id ?? optimisticPick.id,
-              result: savedPick?.result ?? optimisticPick.result,
-            },
-          }))
-        })
+      const newSaved: UserPicksMap = {}
+      for (let i = 0; i < entries.length; i++) {
+        const [gameId] = entries[i]
+        const savedPick = results[i]?.pick
+        if (savedPick) newSaved[gameId] = savedPick
       }
-    } catch (err) {
-      console.error('Network error submitting pick:', err)
+
       startTransition(() => {
-        setPicks((prev) => {
-          const next = { ...prev }
-          if (previousPick) next[gameId] = previousPick
-          else delete next[gameId]
-          return next
-        })
+        setSavedPicks(newSaved)
+        setSubmitted(true)
       })
     } finally {
-      setPending((prev) => {
-        const next = { ...prev }
-        delete next[gameId]
-        return next
-      })
+      setSubmitting(false)
     }
+  }
+
+  // Header right content
+  let headerRight: React.ReactNode
+  if (!canPick) {
+    headerRight = <span className="text-xs text-yellow-600 bg-yellow-600/10 px-2.5 py-1 rounded-full">Picks coming soon</span>
+  } else if (submitted) {
+    headerRight = <span className="text-xs text-green-400 font-semibold">Submitted ✓</span>
+  } else {
+    headerRight = (
+      <span className="bg-gray-800 text-gray-300 text-xs font-medium px-3 py-1 rounded-full">
+        {madeCount} / {pickCount} picks
+      </span>
+    )
   }
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Week {week.week_number}</h1>
-        <div className="flex flex-col items-end gap-1">
-          <span className="bg-gray-800 text-gray-300 text-xs font-medium px-3 py-1 rounded-full">
-            {madePicksCount} of {pickCount} picks made
-          </span>
-          {weekStatus.show && (
-            <span className={`text-xs font-semibold ${weekStatus.color}`}>{weekStatus.label}</span>
-          )}
-        </div>
+    <div>
+      {/* Pick status bar — sticks below the layout week bar */}
+      <div className="sticky top-[41px] z-10 bg-gray-950 border-b border-gray-800 px-4 py-2 flex items-center justify-end">
+        {headerRight}
       </div>
 
-      {/* Day accordions */}
-      {dayGroups.length === 0 ? (
-        <div className="text-center text-gray-500 py-12">No games scheduled yet.</div>
-      ) : (
-        dayGroups.map((dayGroup) => {
-          const isOpen = openDays.has(dayGroup.dayKey)
-          return (
-            <div key={dayGroup.dayKey}>
-              {/* Day header — tap to collapse */}
-              <button
-                onClick={() => toggleDay(dayGroup.dayKey)}
-                className="w-full flex items-center justify-between py-2 text-left"
-              >
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-                  {dayGroup.dayLabel}
-                </span>
-                <span className="text-gray-600 text-xs">{isOpen ? '▲' : '▼'}</span>
-              </button>
+      <div className="p-4 space-y-4 pb-32">
+        {/* Preview banner */}
+        {!canPick && (
+          <p className="text-xs text-gray-600 text-center py-2">
+            Matchups are posted — picks open when the commissioner releases the slate.
+          </p>
+        )}
 
-              {isOpen && (
-                <div className="space-y-4">
-                  {dayGroup.timeGroups.map((timeGroup) => {
-                    const slotKey = `${dayGroup.dayKey}|${timeGroup.label}`
-                    const slotOpen = openSlots.has(slotKey)
-                    return (
-                      <div key={timeGroup.label} className="space-y-3">
-                        {/* Time slot sub-header — collapsible, only when day has multiple windows */}
-                        {dayGroup.multipleSlots && (
-                          <button
-                            onClick={() => toggleSlot(dayGroup.dayKey, timeGroup.label)}
-                            className="w-full flex items-center justify-between pl-1 py-1 text-left"
-                          >
-                            <span className="text-xs text-gray-500 font-medium">
-                              {timeGroup.label}
-                              <span className="ml-2 text-gray-700">
-                                ({timeGroup.games.length} game{timeGroup.games.length !== 1 ? 's' : ''})
-                              </span>
-                            </span>
-                            <span className="text-gray-700 text-xs">{slotOpen ? '▲' : '▼'}</span>
-                          </button>
-                        )}
-                        {(!dayGroup.multipleSlots || slotOpen) &&
-                          timeGroup.games.map((game) => (
-                            <GameCard
-                              key={game.id}
-                              game={game}
-                              pick={picks[game.id]}
-                              onPick={handlePick}
-                              pendingSide={pending[game.id] ?? null}
-                            />
-                          ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+        {/* Post-submit: only show picked games */}
+        {submitted && canPick ? (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold">Your picks</p>
+            {Object.entries(savedPicks).map(([gameId, pick]) => {
+              const game = games.find((g) => g.id === gameId)
+              if (!game) return null
+              return <SubmittedGameCard key={gameId} game={game} pick={pick} />
+            })}
+          </div>
+        ) : (
+          /* All games (picking or preview) */
+          dayGroups.map((dayGroup) => (
+            <div key={dayGroup.dayKey}>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest pb-2">
+                {dayGroup.dayLabel}
+              </p>
+              <div className="space-y-3">
+                {dayGroup.timeGroups.map((timeGroup) => (
+                  <div key={timeGroup.label} className="space-y-3">
+                    {dayGroup.multipleSlots && (
+                      <p className="text-xs text-gray-600 pl-1">
+                        {timeGroup.label} · {timeGroup.games.length} game{timeGroup.games.length !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                    {timeGroup.games.map((game) => (
+                      <GameCard
+                        key={game.id}
+                        game={game}
+                        localPick={localPicks[game.id]}
+                        onPick={handlePick}
+                        canPick={canPick && !submitted}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
-          )
-        })
+          ))
+        )}
+      </div>
+
+      {/* Sticky submit bar */}
+      {canPick && !submitted && (
+        <div className="fixed bottom-20 left-0 right-0 max-w-lg mx-auto px-4 pb-2">
+          <button
+            onClick={handleSubmit}
+            disabled={!readyToSubmit || submitting}
+            className="w-full py-3.5 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-all shadow-xl"
+          >
+            {submitting
+              ? 'Submitting…'
+              : readyToSubmit
+              ? `Lock in ${pickCount} picks →`
+              : `Select ${pickCount - madeCount} more pick${pickCount - madeCount !== 1 ? 's' : ''}`}
+          </button>
+        </div>
       )}
     </div>
   )

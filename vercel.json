@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/odds/fetch-week",
+      "schedule": "0 * * * 4"
+    },
+    {
       "path": "/api/results/poll",
       "schedule": "*/30 * * * *"
     },

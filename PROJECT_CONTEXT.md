@@ -59,12 +59,55 @@ Single league only (for Alex's group). Designed with multi-league architecture i
 | `PickEm_PRD.md` | Full product requirements document |
 | `PickEm_Architecture.md` | Technical architecture: data model, auth, real-time, cron jobs, file structure |
 
+## Testing & Rollout Plan
+
+### QA Strategy (two layers)
+1. **Playwright E2E tests** — built alongside each feature as we go. Automated regression safety net. Covers commissioner flow, player pick flow, results/standings.
+2. **MLB controlled beta** — real users, real data, ~4–6 weeks before NFL season starts.
+
+### MLB Beta Plan
+- **Users:** Alex's BIL (commissioner) + his brothers (players) — the actual target users
+- **Pick format:** Pick the winner (moneyline, no spread) — simpler than NFL against-the-spread but tests the core "pick a side" mechanic that everything else is built on
+- **Data:** Live MLB games via The Odds API (same integration, sport key swapped)
+- **Scope of changes:** Sport as a config variable, MLB team/logo data, moneyline pick format. Core app (commissioner workflow, picks, standings, announcements) unchanged.
+- **Feedback:** In-app "Report a bug" button → Supabase table → email to Alex
+- **Goal:** Surface UX issues, edge cases, and real-world bugs before NFL launch. Fix what the beta surfaces, then go live for NFL.
+
+### Pre-Beta Checklist
+- [ ] Set `MOCK_ODDS=false` in `.env.local` (and in Vercel env vars) before first real data fetch
+- [ ] Verify Odds API key is valid and on correct plan
+- [ ] Seed league with real commissioner + player accounts
+- [ ] End-to-end test: fetch lines → publish → pick → post results → standings
+
+### Why not multi-sport (decided against it)
+The app's value is the commissioner-controlled workflow for a specific group — not the sport. Full sport-agnostic spread handling (run lines, puck lines, etc.) is a V2 decision that needs real user demand behind it. The MLB beta uses moneyline to avoid rebuilding the pick data model.
+
+---
+
+## Key UX Decisions (from build sessions)
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Pick UX | Submit-then-lock | Players select N games, submit once, then view only their picks. No eternal editable draft. Edit flow is a future addition (submit → edit, not open-ended). |
+| Spread display | Chip outside team pill | Team pill = brand identity (color). Spread chip = data (dark, subtle). Separate concerns. |
+| MNF in slate | Never in regular slate | MNF only appears as a tiebreaker flow, commissioner-controlled. Separate creation UI. |
+| Auto-fetch | Configurable hours before TNF | Commissioner always publishes manually (with announcement). Automation only pulls lines. |
+| Push scoring | Configurable (win or tie) | League setting: push counts as correct pick or doesn't count. Default: tie (no credit). |
+| Wednesday preview | Matchups visible pre-spread | Players see matchups once commissioner runs "fetch" but picks don't open until commissioner publishes. |
+| Persistent header | Layout-level week bar | Always shows current week + open/pending status. Pick count shown only on picks page. |
+
+---
+
 ## Next Steps
 1. ✅ PRD written and iterated — v1.3 current
 2. ✅ Tech stack decided — Next.js + Supabase + Vercel, PWA, mobile-first design
 3. ✅ Technical architecture doc written → `PickEm_Architecture.md`
 4. ✅ **GitHub repo created** — `ak0hn/pickem`, local clone at `~/Desktop/CLAUDE/pickem`
 5. ✅ **Phase 1 started** — Scaffold, DB schema, RLS, auth complete
-6. ✅ **`/week` picks screen built** — game cards, spreads, pick selection, optimistic updates, persistence, team logos, day/time accordions, unselect, lock states
-7. **Next: Commissioner page** — `/commissioner` route, weekly workflow (fetch lines → publish → submission tracker → results → close week), invites & players tab, league settings tab
-8. **Then: Results + standings** — result polling, pick scoring, standings screen with tabs (This Week / Season / History)
+6. ✅ **`/week` picks screen built** — two-half tap cards, submit-then-lock UX, post-submit view, team logos, day/time grouping, result cards
+7. ✅ **Commissioner page built** — full lifecycle (fetch lines → review slate → publish → submission tracker → post results → close week), league settings, player invites, dev tools
+8. **Next session: Finish commissioner** — MNF tiebreaker flow, results entry + scoring, pre-SNF update polish
+9. **Next session: Mobile UI review** — test exact mobile scale (not browser sim). Consider Expo/React Native wrapper or true device testing to validate layout.
+10. **Then: Results + standings** — result polling, pick scoring, standings screen with tabs (This Week / Season / History)
+11. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings (built alongside features going forward)
+12. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
+13. **Then: MLB controlled beta** — ~4–6 weeks of live testing with BIL + brothers before NFL season

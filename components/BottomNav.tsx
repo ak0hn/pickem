@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const playerTabs = [
-  { href: '/home', label: 'Feed', icon: '🏠' },
+  { href: '/home', label: 'Home', icon: '🏠' },
   { href: '/week', label: 'Picks', icon: '🏈' },
   { href: '/standings', label: 'Standings', icon: '🏆' },
   { href: '/profile', label: 'Profile', icon: '👤' },
