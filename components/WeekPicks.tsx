@@ -246,6 +246,7 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
   const dayGroups = groupGames(games)
   const madeCount = Object.keys(localPicks).length
   const readyToSubmit = madeCount >= pickCount
+  const noGamesYet = games.length === 0
 
   function handlePick(gameId: string, side: 'home' | 'away') {
     if (submitted || !canPick) return
@@ -289,10 +290,20 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
     }
   }
 
+  // Determine pre-open state: games visible but no picks yet
+  const isPreview = !canPick && week.status === 'pending'
+  const isPostResults = !canPick && (week.status === 'sunday_complete' || week.status === 'results_posted' || week.status === 'tiebreaker')
+
   // Header right content
   let headerRight: React.ReactNode
   if (!canPick) {
-    headerRight = <span className="text-xs text-yellow-600 bg-yellow-600/10 px-2.5 py-1 rounded-full">Picks coming soon</span>
+    if (isPreview) {
+      headerRight = <span className="text-xs text-gray-500 bg-gray-800 px-2.5 py-1 rounded-full">Lines dropping soon</span>
+    } else if (isPostResults) {
+      headerRight = <span className="text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full">Results in</span>
+    } else {
+      headerRight = <span className="text-xs text-yellow-600 bg-yellow-600/10 px-2.5 py-1 rounded-full">Picks locked</span>
+    }
   } else if (submitted) {
     headerRight = <span className="text-xs text-green-400 font-semibold">Submitted ✓</span>
   } else {
@@ -312,14 +323,26 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
 
       <div className="p-4 space-y-4 pb-32">
         {/* Preview banner */}
-        {!canPick && (
+        {isPreview && (
           <p className="text-xs text-gray-600 text-center py-2">
-            Matchups are posted — picks open when the commissioner releases the slate.
+            Week {week.week_number} matchups — lines drop when the commissioner opens picks.
+          </p>
+        )}
+        {isPostResults && (
+          <p className="text-xs text-gray-600 text-center py-2">
+            Week {week.week_number} is wrapped. Check the feed for results.
+          </p>
+        )}
+
+        {/* No games yet */}
+        {noGamesYet && (
+          <p className="text-xs text-gray-600 text-center py-8">
+            Week {week.week_number} slate coming soon.
           </p>
         )}
 
         {/* Post-submit: only show picked games */}
-        {submitted && canPick ? (
+        {!noGamesYet && submitted && canPick ? (
           <div className="space-y-3">
             <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold">Your picks</p>
             {Object.entries(savedPicks).map(([gameId, pick]) => {
@@ -328,7 +351,7 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
               return <SubmittedGameCard key={gameId} game={game} pick={pick} />
             })}
           </div>
-        ) : (
+        ) : !noGamesYet ? (
           /* All games (picking or preview) */
           dayGroups.map((dayGroup) => (
             <div key={dayGroup.dayKey}>
@@ -357,7 +380,7 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
               </div>
             </div>
           ))
-        )}
+        ) : null}
       </div>
 
       {/* Sticky submit bar */}

@@ -1,16 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/odds/fetch-week",
-      "schedule": "0 * * * 4"
-    },
-    {
-      "path": "/api/results/poll",
-      "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/picks/lock",
-      "schedule": "*/5 * * * *"
+      "path": "/api/cron/advance-week",
+      "schedule": "0 5 * * 3"
     }
   ]
 }

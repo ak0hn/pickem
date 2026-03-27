@@ -56,7 +56,7 @@ function LoginForm() {
     const { data: invite } = await supabase
       .from('invites')
       .select('id')
-      .eq('email', email.toLowerCase().trim())
+      .ilike('email', email.toLowerCase().trim())
       .is('accepted_at', null)
       .single()
 

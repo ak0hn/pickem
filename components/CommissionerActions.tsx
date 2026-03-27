@@ -2,17 +2,25 @@
 
 import { useTransition, useState } from 'react'
 import {
-  fetchAndSaveLines,
-  postResults,
+  fetchSchedule,
+  fetchResults,
+  fetchMNFLine,
+  fetchMNFResult,
+  postResultsAnnouncement,
+  postTiebreakerAnnouncement,
+  postTiebreakerResults,
   closeWeek,
   postAnnouncement,
   updateGameSpread,
   devResetWeekToWednesday,
+  devSimulateThursdayDone,
+  devSimulateSundayDone,
+  devSimulateTiebreaker,
 } from '@/app/actions/commissioner'
 
-// ─── Fetch Lines ─────────────────────────────────────────────────────────────
+// ─── Fetch Schedule ───────────────────────────────────────────────────────────
 
-export function FetchLinesButton({
+export function FetchScheduleButton({
   weekNumber,
   seasonYear,
 }: {
@@ -26,7 +34,7 @@ export function FetchLinesButton({
     setError(null)
     startTransition(async () => {
       try {
-        await fetchAndSaveLines(weekNumber, seasonYear)
+        await fetchSchedule(weekNumber, seasonYear)
       } catch (e: any) {
         setError(e.message ?? 'Something went wrong')
       }
@@ -40,7 +48,100 @@ export function FetchLinesButton({
         disabled={pending}
         className="w-full py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
       >
-        {pending ? 'Fetching lines…' : `Fetch Week ${weekNumber} lines`}
+        {pending ? 'Fetching schedule…' : `Fetch Week ${weekNumber} schedule`}
+      </button>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Fetch Results ────────────────────────────────────────────────────────────
+
+export function FetchResultsButton({ weekId }: { weekId: string }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleFetch() {
+    setError(null)
+    startTransition(async () => {
+      try {
+        await fetchResults(weekId)
+      } catch (e: any) {
+        setError(e.message ?? 'Something went wrong')
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={handleFetch}
+        disabled={pending}
+        className="w-full py-2.5 px-4 rounded-xl bg-gray-700 active:bg-gray-600 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+      >
+        {pending ? 'Fetching results…' : 'Fetch results from Odds API →'}
+      </button>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Fetch MNF Line ───────────────────────────────────────────────────────────
+
+export function FetchMNFLineButton({ weekId }: { weekId: string }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleFetch() {
+    setError(null)
+    startTransition(async () => {
+      try {
+        await fetchMNFLine(weekId)
+      } catch (e: any) {
+        setError(e.message ?? 'Something went wrong')
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={handleFetch}
+        disabled={pending}
+        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+      >
+        {pending ? 'Fetching MNF line…' : 'Fetch MNF line →'}
+      </button>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Fetch MNF Result ─────────────────────────────────────────────────────────
+
+export function FetchMNFResultButton({ weekId }: { weekId: string }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleFetch() {
+    setError(null)
+    startTransition(async () => {
+      try {
+        await fetchMNFResult(weekId)
+      } catch (e: any) {
+        setError(e.message ?? 'Something went wrong')
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={handleFetch}
+        disabled={pending}
+        className="w-full py-2.5 px-4 rounded-xl bg-gray-700 active:bg-gray-600 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+      >
+        {pending ? 'Fetching MNF result…' : 'Fetch MNF result →'}
       </button>
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
@@ -82,7 +183,6 @@ export function EditableSpread({
 
   return (
     <div className="flex items-center gap-2">
-      {/* Favorite toggle */}
       <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs">
         {(['away', 'home'] as const).map((side) => (
           <button
@@ -99,7 +199,6 @@ export function EditableSpread({
         ))}
       </div>
 
-      {/* Spread input */}
       <div className="flex items-center gap-1">
         <span className="text-xs text-gray-500">-</span>
         <input
@@ -112,7 +211,6 @@ export function EditableSpread({
         />
       </div>
 
-      {/* Save */}
       <button
         onClick={handleSave}
         disabled={pending}
@@ -124,89 +222,141 @@ export function EditableSpread({
   )
 }
 
-// ─── Post Results ─────────────────────────────────────────────────────────────
+// ─── Results Announcement ─────────────────────────────────────────────────────
 
-type Game = {
-  id: string
-  home_team: string
-  away_team: string
-  result: string
-}
-
-export function PostResultsForm({
+export function ResultsAnnouncementForm({
   weekId,
-  games,
+  perfectCount,
+  threshold,
 }: {
   weekId: string
-  games: Game[]
+  perfectCount: number
+  threshold: number
 }) {
   const [pending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-  const [gameResults, setGameResults] = useState<
-    Record<string, 'home_win' | 'away_win' | 'push' | ''>
-  >(Object.fromEntries(games.map((g) => [g.id, g.result !== 'pending' ? (g.result as any) : ''])))
+  const [content, setContent] = useState('')
+  const needsTiebreaker = perfectCount > threshold
 
-  const allSet = games.every((g) => gameResults[g.id])
+  const placeholder = needsTiebreaker
+    ? `${perfectCount} players went perfect — MNF tiebreaker is on. Here's how the week played out…`
+    : perfectCount > 0
+    ? `${perfectCount} perfect score${perfectCount > 1 ? 's' : ''} this week! Here's how the week played out…`
+    : `Tough week — no perfect scores. Here's how the week played out…`
 
-  function handleSubmit() {
-    setError(null)
+  function handlePost() {
+    if (!content.trim()) return
     startTransition(async () => {
-      try {
-        const results = games
-          .filter((g) => gameResults[g.id])
-          .map((g) => ({
-            gameId: g.id,
-            result: gameResults[g.id] as 'home_win' | 'away_win' | 'push',
-          }))
-        await postResults(weekId, results)
-      } catch (e: any) {
-        setError(e.message ?? 'Something went wrong')
-      }
+      await postResultsAnnouncement(weekId, content.trim())
     })
   }
 
   return (
-    <div className="space-y-3">
-      {games.map((game) => (
-        <div key={game.id} className="space-y-1.5">
-          <p className="text-xs text-gray-400">
-            {game.away_team} @ {game.home_team}
+    <div className="space-y-2">
+      {needsTiebreaker && (
+        <div className="flex items-start gap-2 p-3 bg-yellow-950/40 border border-yellow-900/50 rounded-xl">
+          <span className="text-yellow-500 text-xs mt-0.5">⚡</span>
+          <p className="text-xs text-yellow-400">
+            {perfectCount} players went perfect — posting this will trigger the MNF tiebreaker.
           </p>
-          <div className="grid grid-cols-3 gap-1.5">
-            {[
-              { value: 'away_win', label: game.away_team.split(' ').pop()! },
-              { value: 'home_win', label: game.home_team.split(' ').pop()! },
-              { value: 'push', label: 'Push' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() =>
-                  setGameResults((prev) => ({
-                    ...prev,
-                    [game.id]: value as any,
-                  }))
-                }
-                className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors ${
-                  gameResults[game.id] === value
-                    ? 'bg-white text-gray-950'
-                    : 'bg-gray-800 text-gray-400 active:bg-gray-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
-      ))}
-
+      )}
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
+      />
       <button
-        onClick={handleSubmit}
-        disabled={!allSet || pending}
-        className="w-full py-2.5 px-4 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors mt-2"
+        onClick={handlePost}
+        disabled={!content.trim() || pending}
+        className={`w-full py-2.5 px-4 rounded-xl text-white text-sm font-semibold disabled:opacity-40 transition-colors ${
+          needsTiebreaker
+            ? 'bg-yellow-600 active:bg-yellow-700'
+            : 'bg-green-600 active:bg-green-700'
+        }`}
       >
-        {pending ? 'Posting results…' : 'Confirm & post results →'}
+        {pending
+          ? 'Posting…'
+          : needsTiebreaker
+          ? 'Post results + launch tiebreaker →'
+          : 'Post results + close week →'}
       </button>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Tiebreaker Launch Announcement ──────────────────────────────────────────
+
+export function TiebreakerAnnouncementForm({
+  weekId,
+  eligibleNames,
+}: {
+  weekId: string
+  eligibleNames: string[]
+}) {
+  const [pending, startTransition] = useTransition()
+  const [content, setContent] = useState('')
+
+  const names = eligibleNames.join(', ')
+  const placeholder = `MNF tiebreaker is live. ${names ? `${names} — you're still in it.` : ''} Pick before kickoff.`
+
+  function handlePost() {
+    if (!content.trim()) return
+    startTransition(async () => {
+      await postTiebreakerAnnouncement(weekId, content.trim())
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
+      />
+      <button
+        onClick={handlePost}
+        disabled={!content.trim() || pending}
+        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
+      >
+        {pending ? 'Posting…' : 'Post + open MNF picks →'}
+      </button>
+    </div>
+  )
+}
+
+// ─── Tiebreaker Results Announcement ─────────────────────────────────────────
+
+export function TiebreakerResultsForm({ weekId }: { weekId: string }) {
+  const [pending, startTransition] = useTransition()
+  const [content, setContent] = useState('')
+
+  function handlePost() {
+    if (!content.trim()) return
+    startTransition(async () => {
+      await postTiebreakerResults(weekId, content.trim())
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="MNF tiebreaker result is in. Here's who takes it…"
+        rows={4}
+        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
+      />
+      <button
+        onClick={handlePost}
+        disabled={!content.trim() || pending}
+        className="w-full py-2.5 px-4 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
+      >
+        {pending ? 'Posting…' : 'Post tiebreaker results + close week →'}
+      </button>
     </div>
   )
 }
@@ -227,22 +377,61 @@ export function CloseWeekButton({ weekId }: { weekId: string }) {
   )
 }
 
-// ─── Dev Reset ────────────────────────────────────────────────────────────────
+// ─── Dev Tools ────────────────────────────────────────────────────────────────
 
-export function DevResetButton({ weekId }: { weekId: string }) {
+function DevButton({
+  label,
+  action,
+}: {
+  label: string
+  action: () => Promise<void>
+}) {
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   return (
-    <button
-      onClick={() => startTransition(() => devResetWeekToWednesday(weekId))}
-      disabled={pending}
-      className="w-full py-2 px-4 rounded-lg bg-yellow-900/50 text-yellow-500 text-xs font-semibold disabled:opacity-50 active:bg-yellow-900 transition-colors"
-    >
-      {pending ? 'Resetting…' : 'Simulate Wednesday (open + fresh mock)'}
-    </button>
+    <div>
+      <button
+        onClick={() => {
+          setError(null)
+          startTransition(async () => {
+            try { await action() } catch (e: any) { setError(e.message) }
+          })
+        }}
+        disabled={pending}
+        className="w-full py-2 px-3 rounded-lg bg-yellow-900/50 text-yellow-400 text-xs font-semibold disabled:opacity-50 active:bg-yellow-900 transition-colors text-left"
+      >
+        {pending ? '…' : label}
+      </button>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+    </div>
   )
 }
 
-// ─── Announcement Form ────────────────────────────────────────────────────────
+export function DevResetButton({ weekId, seasonYear }: { weekId: string; seasonYear: number }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-yellow-700 font-medium">Simulate weekly flow:</p>
+      <DevButton
+        label="↩ Reset (wipe everything)"
+        action={() => devResetWeekToWednesday(weekId)}
+      />
+      <DevButton
+        label="→ Thursday done — lines set, slate posted (test pre-SNF update)"
+        action={() => devSimulateThursdayDone(weekId, seasonYear)}
+      />
+      <DevButton
+        label="→ Sunday done — results scored (test writing results post)"
+        action={() => devSimulateSundayDone(weekId, seasonYear)}
+      />
+      <DevButton
+        label="→ Tiebreaker — results posted, MNF up (test full tiebreaker flow)"
+        action={() => devSimulateTiebreaker(weekId, seasonYear)}
+      />
+    </div>
+  )
+}
+
+// ─── Announcement Form (general / pre-SNF) ────────────────────────────────────
 
 export function AnnouncementForm({
   weekId,

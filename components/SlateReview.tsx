@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { publishWeek, updateGameSpread } from '@/app/actions/commissioner'
+import { publishWeek, updateGameSpread, fetchAndSaveLines } from '@/app/actions/commissioner'
 
 // ── Team data ─────────────────────────────────────────────────────────────────
 
@@ -153,7 +153,7 @@ function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
         onChange={(e) => setSpread(e.target.value)}
         step="0.5"
         min="0"
-        placeholder="0 = PK"
+        placeholder=""
         className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-gray-600"
       />
 
@@ -171,8 +171,17 @@ function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
 
 // ── Compact game row ──────────────────────────────────────────────────────────
 
-function GameRow({ game, readOnly = false }: { game: Game; readOnly?: boolean }) {
-  const [editing, setEditing] = useState(false)
+function GameRow({
+  game,
+  readOnly = false,
+  isEditing,
+  onToggleEdit,
+}: {
+  game: Game
+  readOnly?: boolean
+  isEditing?: boolean
+  onToggleEdit?: () => void
+}) {
   const awayFav = game.spread_favorite === 'away'
   const homeFav = game.spread_favorite === 'home'
   const lineSet = game.spread > 0
@@ -207,14 +216,13 @@ function GameRow({ game, readOnly = false }: { game: Game; readOnly?: boolean })
     </>
   )
 
-  // Can only edit when lines have been pulled (spread > 0)
-  const canEdit = !readOnly && lineSet
+  const canEdit = !readOnly
 
   return (
     <div className={game.is_tiebreaker ? 'opacity-60' : ''}>
       {canEdit ? (
         <button
-          onClick={() => setEditing((v) => !v)}
+          onClick={onToggleEdit}
           className="w-full flex items-center justify-between py-2 active:opacity-60 transition-opacity text-left"
         >
           {inner}
@@ -222,7 +230,7 @@ function GameRow({ game, readOnly = false }: { game: Game; readOnly?: boolean })
       ) : (
         <div className="w-full flex items-center justify-between py-2">{inner}</div>
       )}
-      {canEdit && editing && <SpreadEditor game={game} onClose={() => setEditing(false)} />}
+      {canEdit && isEditing && <SpreadEditor game={game} onClose={() => onToggleEdit?.()} />}
     </div>
   )
 }
@@ -234,7 +242,7 @@ function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; wee
   const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const placeholder = `Week ${weekNumber} is live — lines are set, picks are open. Good luck out there. May the best pick'em player win. 🏈`
+  const placeholder = `Week ${weekNumber} is live — picks are open. Good luck.`
 
   function handlePublish() {
     if (!allLinesSet) return
@@ -249,8 +257,6 @@ function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; wee
     })
   }
 
-  const disabledReason = !allLinesSet ? 'Set all lines before opening pick\'em' : undefined
-
   return (
     <div className="space-y-2">
       <textarea
@@ -260,18 +266,13 @@ function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; wee
         rows={3}
         className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
       />
-      <div title={disabledReason}>
-        <button
-          onClick={handlePublish}
-          disabled={pending || !allLinesSet}
-          className="w-full py-3 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {pending ? 'Opening…' : 'Drop the slate — let \'em pick \'em →'}
-        </button>
-      </div>
-      {!allLinesSet && (
-        <p className="text-xs text-gray-600 text-center">Fetch lines first to unlock this</p>
-      )}
+      <button
+        onClick={handlePublish}
+        disabled={pending || !allLinesSet}
+        className="w-full py-3 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        {pending ? 'Opening…' : allLinesSet ? 'Ship the slate — let \'em cook →' : 'Pull lines first, then we cook →'}
+      </button>
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   )
@@ -282,11 +283,12 @@ function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; wee
 type Props = {
   weekId: string
   weekNumber: number
+  seasonYear?: number
   games: Game[]
   readOnly?: boolean
 }
 
-export default function SlateReview({ weekId, weekNumber, games, readOnly = false }: Props) {
+export default function SlateReview({ weekId, weekNumber, seasonYear, games, readOnly = false }: Props) {
   const dayMap = new Map<string, Game[]>()
   for (const game of games) {
     const label = formatDay(game.kickoff_time)
@@ -303,66 +305,88 @@ export default function SlateReview({ weekId, weekNumber, games, readOnly = fals
 
   const allLinesSet = unsetCount === 0
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [refreshing, startRefresh] = useTransition()
+
+  const effectiveReadOnly = readOnly && !editMode
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-white">Week {weekNumber}</span>
-        {!readOnly && (
+        {!readOnly ? (
           <span className="text-xs text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-full">
-            Draft — tap a game to edit line
+            {allLinesSet ? 'Draft — tap a game to edit line' : 'Draft — lines TBD'}
           </span>
+        ) : (
+          <button
+            onClick={() => { setEditMode(v => !v); setEditingId(null) }}
+            className="text-xs text-gray-600 active:text-gray-400 transition-colors"
+          >
+            {editMode ? 'Done' : 'Edit lines'}
+          </button>
         )}
       </div>
 
-      {unsetCount > 0 && (
-        <p className="text-xs text-gray-600">
-          {unsetCount} line{unsetCount !== 1 ? 's' : ''} not yet set
-          {!readOnly && <span className="text-gray-700"> — fetch lines or tap game to set manually</span>}
-        </p>
-      )}
-
-      {/* Game list */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 divide-y divide-gray-800/60">
-        {dayGroups.map(([dayLabel, dayGames]) => (
-          <div key={dayLabel}>
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest pt-3 pb-1">
-              {dayLabel}
-            </p>
-            {dayGames.map((game) => (
-              <GameRow key={game.id} game={game} readOnly={readOnly} />
-            ))}
-          </div>
-        ))}
-
-        {/* Bye teams — only shown mid-season when not all teams play */}
-        {byeTeams.length > 0 && (
-          <div className="py-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">Bye</p>
-            <div className="flex flex-wrap gap-1.5">
-              {byeTeams.map((name) => {
-                const team = getTeam(name)
-                return (
-                  <span
-                    key={name}
-                    className="px-2 py-0.5 rounded-md text-xs font-bold opacity-40"
-                    style={{ backgroundColor: team.color, color: team.light ? '#111' : '#fff' }}
-                  >
-                    {team.abbr}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Publish — only in draft mode */}
+      {/* Publish form — above the slate so it's the first thing commissioner sees */}
       {!readOnly && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2">
-          <p className="text-xs text-gray-500">Draft your message — sends to the feed and opens picks.</p>
-          <PublishBlock weekId={weekId} weekNumber={weekNumber} allLinesSet={allLinesSet} />
-        </div>
+        <PublishBlock weekId={weekId} weekNumber={weekNumber} allLinesSet={allLinesSet} />
       )}
+
+      {/* Slate card — sync button anchored to top-right corner */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl relative">
+        {!readOnly && seasonYear && (
+          <button
+            onClick={() => startRefresh(() => fetchAndSaveLines(weekNumber, seasonYear))}
+            disabled={refreshing}
+            title={allLinesSet ? 'Refresh lines' : 'Fetch lines'}
+            className="absolute top-3 right-4 text-gray-600 active:text-gray-300 disabled:opacity-40 transition-colors text-base leading-none z-10"
+          >
+            {refreshing ? '…' : '↻'}
+          </button>
+        )}
+
+        <div className="px-4 divide-y divide-gray-800/60">
+          {dayGroups.map(([dayLabel, dayGames]) => (
+            <div key={dayLabel}>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest pt-3 pb-1">
+                {dayLabel}
+              </p>
+              {dayGames.map((game) => (
+                <GameRow
+                  key={game.id}
+                  game={game}
+                  readOnly={effectiveReadOnly}
+                  isEditing={editingId === game.id}
+                  onToggleEdit={() => setEditingId(editingId === game.id ? null : game.id)}
+                />
+              ))}
+            </div>
+          ))}
+
+          {byeTeams.length > 0 && (
+            <div className="py-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">Bye</p>
+              <div className="flex flex-wrap gap-1.5">
+                {byeTeams.map((name) => {
+                  const team = getTeam(name)
+                  return (
+                    <span
+                      key={name}
+                      className="px-2 py-0.5 rounded-md text-xs font-bold opacity-40"
+                      style={{ backgroundColor: team.color, color: team.light ? '#111' : '#fff' }}
+                    >
+                      {team.abbr}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

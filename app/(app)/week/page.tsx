@@ -1,5 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import WeekPicks from '@/components/WeekPicks'
+import TiebreakerView from '@/components/TiebreakerView'
 
 export type Week = {
   id: string
@@ -33,78 +35,169 @@ export type Pick = {
 
 export default async function WeekPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const db = createServiceClient()
 
-  // Fetch the most recent open or pending week
-  const { data: weeks } = await supabase
+  // Always show the most recent non-closed week — slate is visible regardless of status
+  const { data: weeks } = await db
     .from('weeks')
     .select('*')
-    .in('status', ['open', 'pending'])
+    .neq('status', 'closed')
     .order('week_number', { ascending: false })
     .limit(1)
 
   const week: Week | null = weeks?.[0] ?? null
   const canPick = week?.status === 'open'
+  // Spreads are revealed to players only when picks are open (commissioner published)
+  const spreadsVisible = week?.status !== 'pending'
 
   if (!week) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-[60vh] text-center">
-        <div className="text-4xl mb-4">🏈</div>
-        <h2 className="text-xl font-bold text-white mb-2">No active week</h2>
+        <h2 className="text-xl font-bold text-white mb-2">Off-season</h2>
         <p className="text-gray-400 max-w-xs">
-          No picks available this week. Check back Thursday when the
-          commissioner posts the slate.
+          No active week. Check back when the new season kicks off.
         </p>
       </div>
     )
   }
 
-  // Fetch games for this week (non-tiebreaker), ordered by kickoff time
-  const { data: games } = await supabase
+  // Regular games (non-tiebreaker), Thu–SNF only — MNF reserved for tiebreaker
+  const { data: gamesRaw } = await db
     .from('games')
     .select('*')
     .eq('week_id', week.id)
     .eq('is_tiebreaker', false)
     .order('kickoff_time', { ascending: true })
 
-  // Fetch user's existing picks for this week
-  const { data: picksRaw } = user
-    ? await supabase
-        .from('picks')
-        .select('*')
-        .eq('user_id', user.id)
-        .in(
-          'game_id',
-          (games ?? []).map((g: Game) => g.id)
-        )
-    : { data: [] }
+  // Mask spreads from players until commissioner publishes
+  const games = (gamesRaw ?? []).map((g: Game) =>
+    spreadsVisible ? g : { ...g, spread: 0, spread_favorite: 'home' }
+  )
 
-  // Build a map of game_id → pick
+  // User's existing picks for regular games
+  const { data: picksRaw } = await db
+    .from('picks')
+    .select('*')
+    .eq('user_id', user.id)
+    .in('game_id', games.map((g: Game) => g.id))
+
   const userPicks: Record<string, Pick> = {}
   for (const pick of picksRaw ?? []) {
     userPicks[pick.game_id] = pick as Pick
   }
 
-  // Fetch league settings for pick count
-  const { data: settings } = await supabase
-    .from('league_settings')
+  // League pick count setting
+  const { data: settings } = await db
+    .from('league')
     .select('pick_count')
     .limit(1)
     .maybeSingle()
 
   const pickCount: number = settings?.pick_count ?? 6
 
+  // ── Tiebreaker data ──────────────────────────────────────────────────────────
+
+  let tiebreakerGame: Game | null = null
+  let isEligible = false
+  let tiebreakerPick: { picked_team: 'home' | 'away'; result: string } | null = null
+  let homeVotes = 0
+  let awayVotes = 0
+  let totalVotes = 0
+  let tiebreakerPicksOpen = false
+
+  if (week.status === 'tiebreaker') {
+    // Check if the tiebreaker announcement has been posted (picks are open)
+    const { data: tbAnnouncement } = await db
+      .from('announcements')
+      .select('id')
+      .eq('week_id', week.id)
+      .eq('type', 'tiebreaker')
+      .maybeSingle()
+
+    tiebreakerPicksOpen = !!tbAnnouncement
+
+    if (tiebreakerPicksOpen) {
+      // Fetch the tiebreaker game
+      const { data: tbGame } = await db
+        .from('games')
+        .select('*')
+        .eq('week_id', week.id)
+        .eq('is_tiebreaker', true)
+        .maybeSingle()
+
+      tiebreakerGame = tbGame ?? null
+
+      if (tiebreakerGame) {
+        // Eligibility: did the user go perfect on all non-tiebreaker picks?
+        const weekGameIds = games.map((g: Game) => g.id)
+        const { data: eligibilityPicks } = await db
+          .from('picks')
+          .select('result')
+          .eq('user_id', user.id)
+          .in('game_id', weekGameIds)
+
+        isEligible =
+          (eligibilityPicks ?? []).length > 0 &&
+          (eligibilityPicks ?? []).every((p: any) => p.result === 'win')
+
+        // User's tiebreaker pick
+        const { data: tbPickRaw } = await db
+          .from('picks')
+          .select('picked_team, result')
+          .eq('user_id', user.id)
+          .eq('game_id', tiebreakerGame.id)
+          .maybeSingle()
+
+        tiebreakerPick = tbPickRaw
+          ? { picked_team: tbPickRaw.picked_team as 'home' | 'away', result: tbPickRaw.result }
+          : null
+
+        // Vote tally (shown to non-eligible players)
+        if (!isEligible) {
+          const { data: allTbPicks } = await db
+            .from('picks')
+            .select('picked_team')
+            .eq('game_id', tiebreakerGame.id)
+
+          for (const p of allTbPicks ?? []) {
+            if (p.picked_team === 'home') homeVotes++
+            else if (p.picked_team === 'away') awayVotes++
+          }
+          totalVotes = homeVotes + awayVotes
+        }
+      }
+    }
+  }
+
   return (
-    <WeekPicks
-      week={week}
-      games={(games ?? []) as Game[]}
-      userPicks={userPicks}
-      userId={user?.id ?? null}
-      pickCount={pickCount}
-      canPick={canPick}
-    />
+    <div className="space-y-4">
+      <WeekPicks
+        week={week}
+        games={games as Game[]}
+        userPicks={userPicks}
+        userId={user.id}
+        pickCount={pickCount}
+        canPick={canPick}
+      />
+
+      {/* Tiebreaker section — shown when picks are open */}
+      {week.status === 'tiebreaker' && tiebreakerPicksOpen && tiebreakerGame && (
+        <div className="px-4 pb-4">
+          <TiebreakerView
+            game={tiebreakerGame}
+            weekId={week.id}
+            userId={user.id}
+            isEligible={isEligible}
+            existingPick={tiebreakerPick}
+            homeVotes={homeVotes}
+            awayVotes={awayVotes}
+            totalVotes={totalVotes}
+          />
+        </div>
+      )}
+    </div>
   )
 }

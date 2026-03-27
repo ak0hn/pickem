@@ -4,6 +4,14 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import {
+  getMockSchedule,
+  getMockGames,
+  getMockScores,
+  getMockMNFGame,
+  getMockMNFScore,
+  parseOddsApiGames,
+} from '@/lib/nfl/mock-data'
 
 // ─── Auth guard ───────────────────────────────────────────────────────────────
 
@@ -22,108 +30,41 @@ async function requireCommissioner() {
   return user
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
+// ─── ATS result computation ───────────────────────────────────────────────────
 
-function getMockGames() {
-  // Next Thursday at 8:20 PM ET
-  const now = new Date()
-  const thursday = new Date(now)
-  const daysUntilThursday = (4 - now.getDay() + 7) % 7 || 7
-  thursday.setDate(now.getDate() + daysUntilThursday)
-  thursday.setHours(20, 20, 0, 0)
-
-  const sunday = new Date(thursday)
-  sunday.setDate(thursday.getDate() + 3)
-
-  const t = (h: number, m: number) => { const d = new Date(thursday); d.setHours(h, m, 0, 0); return d.toISOString() }
-  const s = (h: number, m: number) => { const d = new Date(sunday);   d.setHours(h, m, 0, 0); return d.toISOString() }
-
-  // Full slate — all 32 teams playing, no byes (used for UI simulation)
-  // spread:0 = line not yet set (TBD)
-  return [
-    // ── Thursday 8:20 PM ET ──────────────────────────────────────────────────
-    { home_team: 'Cincinnati Bengals',     away_team: 'Baltimore Ravens',     spread: 1.5, spread_favorite: 'away', kickoff_time: t(20,20),  day: 'thursday', is_tiebreaker: false, external_id: 'mock_1' },
-
-    // ── Sunday 1:00 PM ET ────────────────────────────────────────────────────
-    { home_team: 'New England Patriots',   away_team: 'Buffalo Bills',        spread: 3.0, spread_favorite: 'away', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_2' },
-    { home_team: 'Indianapolis Colts',     away_team: 'New York Jets',        spread: 0,   spread_favorite: 'home', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_3' },
-    { home_team: 'Houston Texans',         away_team: 'Jacksonville Jaguars', spread: 2.5, spread_favorite: 'home', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_4' },
-    { home_team: 'New Orleans Saints',     away_team: 'Carolina Panthers',    spread: 4.5, spread_favorite: 'home', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_5' },
-    { home_team: 'Detroit Lions',          away_team: 'Chicago Bears',        spread: 7.0, spread_favorite: 'home', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_6' },
-    { home_team: 'New York Giants',        away_team: 'Green Bay Packers',    spread: 0,   spread_favorite: 'away', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_7' },
-    { home_team: 'Dallas Cowboys',         away_team: 'Philadelphia Eagles',  spread: 1.0, spread_favorite: 'away', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_8' },
-    { home_team: 'Tennessee Titans',       away_team: 'Pittsburgh Steelers',  spread: 0,   spread_favorite: 'away', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_9' },
-    { home_team: 'Atlanta Falcons',        away_team: 'Arizona Cardinals',    spread: 3.0, spread_favorite: 'home', kickoff_time: s(13,0),   day: 'sunday',   is_tiebreaker: false, external_id: 'mock_10' },
-
-    // ── Sunday 4:25 PM ET ────────────────────────────────────────────────────
-    { home_team: 'Denver Broncos',         away_team: 'Las Vegas Raiders',    spread: 3.5, spread_favorite: 'home', kickoff_time: s(16,25),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_11' },
-    { home_team: 'Kansas City Chiefs',     away_team: 'Los Angeles Chargers', spread: 6.5, spread_favorite: 'home', kickoff_time: s(16,25),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_12' },
-    { home_team: 'Washington Commanders',  away_team: 'Tampa Bay Buccaneers', spread: 0,   spread_favorite: 'home', kickoff_time: s(16,25),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_13' },
-    { home_team: 'Los Angeles Rams',       away_team: 'Seattle Seahawks',     spread: 2.5, spread_favorite: 'home', kickoff_time: s(16,25),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_14' },
-    { home_team: 'Minnesota Vikings',      away_team: 'San Francisco 49ers',  spread: 1.0, spread_favorite: 'away', kickoff_time: s(16,25),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_15' },
-
-    // ── Sunday Night 8:20 PM ET (SNF) ────────────────────────────────────────
-    { home_team: 'Miami Dolphins',         away_team: 'Cleveland Browns',     spread: 2.5, spread_favorite: 'home', kickoff_time: s(20,20),  day: 'sunday',   is_tiebreaker: false, external_id: 'mock_16' },
-
-    // MNF not included — tiebreaker game is created separately if threshold is met
-    // All 32 teams accounted for
-  ]
-}
-
-function parseOddsApiGames(oddsData: any[]) {
-  const games = []
-
-  for (const event of oddsData) {
-    const spreadsMarket = event.bookmakers?.[0]?.markets?.find(
-      (m: any) => m.key === 'spreads'
-    )
-    if (!spreadsMarket) continue
-
-    const homeOutcome = spreadsMarket.outcomes.find(
-      (o: any) => o.name === event.home_team
-    )
-    const awayOutcome = spreadsMarket.outcomes.find(
-      (o: any) => o.name === event.away_team
-    )
-    if (!homeOutcome || !awayOutcome) continue
-
-    const kickoff = new Date(event.commence_time)
-    const day = kickoff.getDay()
-    const dayMap: Record<number, string> = {
-      0: 'sunday',
-      1: 'monday',
-      4: 'thursday',
-      5: 'friday',
-      6: 'saturday',
-    }
-    const gameDay = dayMap[day] ?? 'sunday'
-
-    const homeSpread = homeOutcome.point
-    const spreadFavorite = homeSpread < 0 ? 'home' : 'away'
-
-    games.push({
-      home_team: event.home_team,
-      away_team: event.away_team,
-      spread: Math.abs(homeSpread),
-      spread_favorite: spreadFavorite,
-      kickoff_time: kickoff.toISOString(),
-      day: gameDay,
-      is_tiebreaker: false,
-      external_id: event.id,
-    })
+function computeATSResult(
+  homeScore: number,
+  awayScore: number,
+  spread: number,
+  spreadFavorite: string
+): 'home_win' | 'away_win' | 'push' {
+  if (spread === 0) {
+    if (homeScore > awayScore) return 'home_win'
+    if (awayScore > homeScore) return 'away_win'
+    return 'push'
   }
-
-  return games
+  if (spreadFavorite === 'home') {
+    const margin = homeScore - awayScore
+    if (margin > spread) return 'home_win'
+    if (margin < spread) return 'away_win'
+    return 'push'
+  } else {
+    const margin = awayScore - homeScore
+    if (margin > spread) return 'away_win'
+    if (margin < spread) return 'home_win'
+    return 'push'
+  }
 }
 
-// ─── Actions ──────────────────────────────────────────────────────────────────
+// ─── Shared: upsert week + populate games ────────────────────────────────────
 
-export async function fetchAndSaveLines(weekNumber: number, seasonYear: number) {
-  await requireCommissioner()
-  const db = createServiceClient()
-
-  // Create the week record
-  const { data: week, error: weekError } = await db
+async function upsertWeekWithGames(
+  db: ReturnType<typeof createServiceClient>,
+  weekNumber: number,
+  seasonYear: number,
+  games: any[]
+) {
+  const { data: week, error } = await db
     .from('weeks')
     .upsert(
       { week_number: weekNumber, season_year: seasonYear, status: 'pending' },
@@ -132,41 +73,90 @@ export async function fetchAndSaveLines(weekNumber: number, seasonYear: number) 
     .select()
     .single()
 
-  if (weekError || !week) throw new Error('Failed to create week')
+  if (error || !week) throw new Error('Failed to create week')
 
-  // Delete any existing games for this week (re-fetch idempotency)
-  await db.from('games').delete().eq('week_id', week.id)
+  await db.from('games').delete().eq('week_id', week.id).eq('is_tiebreaker', false)
+  const { error: gamesError } = await db.from('games').insert(
+    games.map((g) => ({ ...g, week_id: week.id }))
+  )
+  if (gamesError) throw new Error('Failed to save games')
+
+  return week
+}
+
+// ─── Fetch schedule (teams + times, no spreads) ───────────────────────────────
+
+export async function fetchSchedule(weekNumber: number, seasonYear: number) {
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  let games
+  if (process.env.MOCK_ODDS === 'true') {
+    games = getMockSchedule()
+  } else {
+    const { fetchNFLOdds } = await import('@/lib/odds-api/client')
+    const oddsData = await fetchNFLOdds()
+    games = parseOddsApiGames(oddsData).map((g) => ({ ...g, spread: 0, spread_favorite: 'home' as const }))
+  }
+
+  await upsertWeekWithGames(db, weekNumber, seasonYear, games)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+}
+
+// ─── Fetch lines (update spreads on existing games) ───────────────────────────
+
+export async function fetchAndSaveLines(weekNumber: number, seasonYear: number) {
+  await requireCommissioner()
+  const db = createServiceClient()
 
   let games
   if (process.env.MOCK_ODDS === 'true') {
     games = getMockGames()
   } else {
     const { fetchNFLOdds } = await import('@/lib/odds-api/client')
-    const oddsData = await fetchNFLOdds()
-    games = parseOddsApiGames(oddsData)
+    games = parseOddsApiGames(await fetchNFLOdds())
   }
 
-  const { error: gamesError } = await db.from('games').insert(
-    games.map((g) => ({ ...g, week_id: week.id }))
-  )
+  // Try to update spreads on existing games; recreate if none exist
+  const { data: weekRow } = await db
+    .from('weeks')
+    .select('id')
+    .eq('week_number', weekNumber)
+    .eq('season_year', seasonYear)
+    .maybeSingle()
 
-  if (gamesError) throw new Error('Failed to save games')
+  const { data: existing } = weekRow
+    ? await db.from('games').select('id, external_id, home_team, away_team').eq('week_id', weekRow.id).eq('is_tiebreaker', false)
+    : { data: null }
+
+  if (existing && existing.length > 0) {
+    for (const game of games) {
+      const match =
+        existing.find((eg: any) => eg.external_id === game.external_id) ??
+        existing.find((eg: any) => eg.home_team === game.home_team && eg.away_team === game.away_team)
+      if (match) {
+        await db.from('games')
+          .update({ spread: game.spread, spread_favorite: game.spread_favorite })
+          .eq('id', match.id)
+      }
+    }
+  } else {
+    await upsertWeekWithGames(db, weekNumber, seasonYear, games)
+  }
 
   revalidatePath('/commissioner')
   revalidatePath('/week')
 }
 
+// ─── Publish week (open picks) ────────────────────────────────────────────────
+
 export async function publishWeek(weekId: string, message: string) {
   const user = await requireCommissioner()
   const db = createServiceClient()
 
-  const { error } = await db
-    .from('weeks')
-    .update({ status: 'open' })
-    .eq('id', weekId)
-
-  if (error) throw new Error('Failed to publish week')
-
+  await db.from('weeks').update({ status: 'open' }).eq('id', weekId)
   await db.from('announcements').insert({
     week_id: weekId,
     author_id: user.id,
@@ -179,39 +169,64 @@ export async function publishWeek(weekId: string, message: string) {
   revalidatePath('/home')
 }
 
-export async function postResults(
-  weekId: string,
-  results: { gameId: string; result: 'home_win' | 'away_win' | 'push' }[]
-) {
-  const user = await requireCommissioner()
+// ─── Fetch results ────────────────────────────────────────────────────────────
+
+export async function fetchResults(weekId: string) {
+  await requireCommissioner()
   const db = createServiceClient()
 
-  // Update each game result — the DB trigger auto-scores picks
-  for (const { gameId, result } of results) {
-    await db
-      .from('games')
-      .update({ result, result_confirmed: true })
-      .eq('id', gameId)
-  }
-
-  await db
-    .from('weeks')
-    .update({ status: 'results_posted' })
-    .eq('id', weekId)
-
-  // Count perfect scorers
   const { data: games } = await db
     .from('games')
-    .select('id')
+    .select('id, external_id, spread, spread_favorite')
     .eq('week_id', weekId)
     .eq('is_tiebreaker', false)
 
-  const gameIds = (games ?? []).map((g) => g.id)
+  if (!games || games.length === 0) throw new Error('No games found for this week')
 
-  const { data: picks } = await db
-    .from('picks')
-    .select('user_id, result')
-    .in('game_id', gameIds)
+  let scores: Array<{ external_id: string; home_score: number; away_score: number }>
+
+  if (process.env.MOCK_ODDS === 'true') {
+    scores = getMockScores()
+  } else {
+    const { fetchNFLScores } = await import('@/lib/odds-api/client')
+    const raw = await fetchNFLScores(2)
+    scores = (raw as any[])
+      .filter((s) => s.completed)
+      .map((s) => ({
+        external_id: s.id,
+        home_score: parseInt(s.scores?.find((sc: any) => sc.name === s.home_team)?.score ?? '0'),
+        away_score: parseInt(s.scores?.find((sc: any) => sc.name === s.away_team)?.score ?? '0'),
+      }))
+  }
+
+  let updatedCount = 0
+  for (const game of games) {
+    const score = scores.find((s) => s.external_id === (game as any).external_id)
+    if (!score) continue
+    const result = computeATSResult(score.home_score, score.away_score, (game as any).spread, (game as any).spread_favorite)
+    await db.from('games').update({ result, result_confirmed: true }).eq('id', game.id)
+    updatedCount++
+  }
+
+  if (updatedCount === 0) throw new Error('No completed game scores found yet — try again after all games have ended.')
+
+  await db.from('weeks').update({ status: 'sunday_complete' }).eq('id', weekId)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/standings')
+  revalidatePath('/home')
+}
+
+// ─── Results announcement (gates close or tiebreaker) ────────────────────────
+
+export async function postResultsAnnouncement(weekId: string, content: string) {
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: games } = await db.from('games').select('id').eq('week_id', weekId).eq('is_tiebreaker', false)
+  const gameIds = (games ?? []).map((g: any) => g.id)
+  const { data: picks } = await db.from('picks').select('user_id, result').in('game_id', gameIds)
 
   const byUser: Record<string, string[]> = {}
   for (const p of picks ?? []) {
@@ -223,68 +238,155 @@ export async function postResults(
     (results) => results.length > 0 && results.every((r) => r === 'win')
   ).length
 
-  const content =
-    perfectCount > 0
-      ? `Results are in! 🎉 ${perfectCount} perfect score${perfectCount > 1 ? 's' : ''} this week. Check the standings.`
-      : `Results are in! Tough week — no perfect scores. Check the standings to see where you stand.`
+  const { data: league } = await db.from('league').select('tiebreaker_threshold').limit(1).maybeSingle()
+  const threshold = league?.tiebreaker_threshold ?? 1
 
-  await db.from('announcements').insert({
-    week_id: weekId,
-    author_id: user.id,
-    type: 'results',
-    content,
-  })
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'results', content: content.trim() })
+  await db.from('weeks').update({ status: perfectCount > threshold ? 'tiebreaker' : 'results_posted' }).eq('id', weekId)
 
   revalidatePath('/commissioner')
-  revalidatePath('/standings')
   revalidatePath('/home')
+  revalidatePath('/standings')
+  revalidatePath('/week')
 }
+
+// ─── Tiebreaker: fetch MNF line ───────────────────────────────────────────────
+
+export async function fetchMNFLine(weekId: string) {
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  await db.from('games').delete().eq('week_id', weekId).eq('is_tiebreaker', true)
+
+  let mnfGame
+  if (process.env.MOCK_ODDS === 'true') {
+    mnfGame = getMockMNFGame()
+  } else {
+    const { fetchNFLOdds } = await import('@/lib/odds-api/client')
+    const oddsData = await fetchNFLOdds()
+    const mondayGames = (oddsData as any[]).filter((e) => new Date(e.commence_time).getDay() === 1)
+    if (mondayGames.length === 0) throw new Error('No Monday Night Football game found this week')
+
+    const event = mondayGames[0]
+    const spreadsMarket = event.bookmakers?.[0]?.markets?.find((m: any) => m.key === 'spreads')
+    if (!spreadsMarket) throw new Error('No spread available for MNF yet — try again closer to game time')
+
+    const homeOutcome = spreadsMarket.outcomes.find((o: any) => o.name === event.home_team)
+    if (!homeOutcome) throw new Error('Could not parse MNF spread')
+
+    const homeSpread = homeOutcome.point
+    mnfGame = {
+      home_team: event.home_team,
+      away_team: event.away_team,
+      spread: Math.abs(homeSpread),
+      spread_favorite: homeSpread < 0 ? 'home' : 'away',
+      kickoff_time: new Date(event.commence_time).toISOString(),
+      day: 'monday',
+      is_tiebreaker: true,
+      external_id: event.id,
+    }
+  }
+
+  await db.from('games').insert({ ...mnfGame, week_id: weekId })
+  revalidatePath('/commissioner')
+}
+
+// ─── Tiebreaker: post launch announcement (opens MNF picks) ──────────────────
+
+export async function postTiebreakerAnnouncement(weekId: string, content: string) {
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'tiebreaker', content: content.trim() })
+
+  revalidatePath('/commissioner')
+  revalidatePath('/home')
+  revalidatePath('/week')
+}
+
+// ─── Tiebreaker: fetch MNF result ─────────────────────────────────────────────
+
+export async function fetchMNFResult(weekId: string) {
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: tbGame } = await db
+    .from('games')
+    .select('id, external_id, spread, spread_favorite')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', true)
+    .maybeSingle()
+
+  if (!tbGame) throw new Error('No tiebreaker game found')
+
+  let homeScore: number, awayScore: number
+
+  if (process.env.MOCK_ODDS === 'true') {
+    const mock = getMockMNFScore()
+    homeScore = mock.home_score
+    awayScore = mock.away_score
+  } else {
+    const { fetchNFLScores } = await import('@/lib/odds-api/client')
+    const raw = await fetchNFLScores(1)
+    const found = (raw as any[]).find((s) => s.id === (tbGame as any).external_id)
+    if (!found || !found.completed) throw new Error('MNF result not yet available — try again after the game ends')
+    homeScore = parseInt(found.scores?.find((sc: any) => sc.name === found.home_team)?.score ?? '0')
+    awayScore = parseInt(found.scores?.find((sc: any) => sc.name === found.away_team)?.score ?? '0')
+  }
+
+  const result = computeATSResult(homeScore, awayScore, (tbGame as any).spread, (tbGame as any).spread_favorite)
+  await db.from('games').update({ result, result_confirmed: true }).eq('id', tbGame.id)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/standings')
+}
+
+// ─── Tiebreaker: post results announcement (closes week) ─────────────────────
+
+export async function postTiebreakerResults(weekId: string, content: string) {
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'results', content: content.trim() })
+  await db.from('weeks').update({ status: 'results_posted' }).eq('id', weekId)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/home')
+  revalidatePath('/standings')
+  revalidatePath('/week')
+}
+
+// ─── Close week ───────────────────────────────────────────────────────────────
 
 export async function closeWeek(weekId: string) {
   await requireCommissioner()
   const db = createServiceClient()
-
-  const { error } = await db
-    .from('weeks')
-    .update({ status: 'closed' })
-    .eq('id', weekId)
-
-  if (error) throw new Error('Failed to close week')
-
+  await db.from('weeks').update({ status: 'closed' }).eq('id', weekId)
   revalidatePath('/commissioner')
 }
+
+// ─── General announcement ─────────────────────────────────────────────────────
 
 export async function postAnnouncement(weekId: string | null, content: string, type: string = 'general') {
   const user = await requireCommissioner()
   const db = createServiceClient()
-
-  await db.from('announcements').insert({
-    week_id: weekId,
-    author_id: user.id,
-    type,
-    content,
-  })
-
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type, content })
   revalidatePath('/home')
   revalidatePath('/commissioner')
 }
 
-export async function updateGameSpread(
-  gameId: string,
-  spread: number,
-  spreadFavorite: 'home' | 'away'
-) {
+// ─── Spread override ──────────────────────────────────────────────────────────
+
+export async function updateGameSpread(gameId: string, spread: number, spreadFavorite: 'home' | 'away') {
   await requireCommissioner()
   const db = createServiceClient()
-
-  const { error } = await db
-    .from('games')
-    .update({ spread, spread_favorite: spreadFavorite })
-    .eq('id', gameId)
-
+  const { error } = await db.from('games').update({ spread, spread_favorite: spreadFavorite }).eq('id', gameId)
   if (error) throw new Error('Failed to update spread')
   revalidatePath('/commissioner')
 }
+
+// ─── League settings ──────────────────────────────────────────────────────────
 
 export async function updatePushCountsAs(value: 'win' | 'tie') {
   await requireCommissioner()
@@ -293,11 +395,7 @@ export async function updatePushCountsAs(value: 'win' | 'tie') {
   if (league) {
     await db.from('league').update({ push_counts_as: value }).eq('id', league.id)
   } else {
-    await db.from('league').insert({
-      name: "Pick'em League",
-      season_year: new Date().getFullYear(),
-      push_counts_as: value,
-    })
+    await db.from('league').insert({ name: "Pick'em League", season_year: new Date().getFullYear(), push_counts_as: value })
   }
   revalidatePath('/commissioner/league')
 }
@@ -305,35 +403,65 @@ export async function updatePushCountsAs(value: 'win' | 'tie') {
 export async function updateFetchHours(hours: number) {
   await requireCommissioner()
   const db = createServiceClient()
-
   const { data: league } = await db.from('league').select('id').limit(1).maybeSingle()
-
   if (league) {
     await db.from('league').update({ fetch_hours_before_kickoff: hours }).eq('id', league.id)
   } else {
-    await db.from('league').insert({
-      name: "Pick'em League",
-      season_year: new Date().getFullYear(),
-      fetch_hours_before_kickoff: hours,
-    })
+    await db.from('league').insert({ name: "Pick'em League", season_year: new Date().getFullYear(), fetch_hours_before_kickoff: hours })
   }
+  revalidatePath('/commissioner/league')
+}
+
+// ─── Player invites ───────────────────────────────────────────────────────────
+
+export async function invitePlayer(email: string) {
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: existing } = await db.from('invites').select('id').eq('email', email).maybeSingle()
+  if (existing) throw new Error('Player already invited')
+
+  const { data: existingUser } = await db.from('users').select('id').eq('email', email).maybeSingle()
+  if (existingUser) throw new Error('Player already in league')
+
+  const { data: invite, error } = await db.from('invites').insert({ email, invited_by: user.id }).select().single()
+  if (error) throw new Error('Failed to create invite')
 
   revalidatePath('/commissioner/league')
+  return invite
 }
 
 // ─── Dev only ─────────────────────────────────────────────────────────────────
 
-export async function devResetWeekToWednesday(weekId: string) {
+function devGuard() {
   if (process.env.MOCK_ODDS !== 'true') throw new Error('Only available in mock/dev mode')
+}
+
+// Shared setup used by Sunday and Tiebreaker sims
+async function devSetupSundayComplete(db: ReturnType<typeof createServiceClient>, weekId: string, authorId: string) {
+  const games = getMockGames()
+  await db.from('games').insert(games.map((g) => ({ ...g, week_id: weekId })))
+  await db.from('announcements').insert({ week_id: weekId, author_id: authorId, type: 'slate', content: '[Dev sim] Slate posted.' })
+
+  const { data: inserted } = await db.from('games').select('id, external_id, spread, spread_favorite').eq('week_id', weekId).eq('is_tiebreaker', false)
+  for (const game of inserted ?? []) {
+    const score = getMockScores().find((s) => s.external_id === (game as any).external_id)
+    if (!score) continue
+    const result = computeATSResult(score.home_score, score.away_score, (game as any).spread, (game as any).spread_favorite)
+    await db.from('games').update({ result, result_confirmed: true }).eq('id', game.id)
+  }
+}
+
+// Sim 1 — Reset: wipe picks/announcements, restore schedule (no lines yet)
+export async function devResetWeekToWednesday(weekId: string) {
+  devGuard()
   await requireCommissioner()
   const db = createServiceClient()
 
-  // Delete existing games and re-insert mock data with no spreads (lines not pulled yet)
+  await db.from('picks').delete().eq('week_id', weekId)
+  await db.from('announcements').delete().eq('week_id', weekId)
   await db.from('games').delete().eq('week_id', weekId)
-  const games = getMockGames().map((g) => ({ ...g, spread: 0 }))
-  await db.from('games').insert(games.map((g) => ({ ...g, week_id: weekId })))
-
-  // Pending = commish can see matchups, picks not open yet
+  await db.from('games').insert(getMockSchedule().map((g) => ({ ...g, week_id: weekId })))
   await db.from('weeks').update({ status: 'pending' }).eq('id', weekId)
 
   revalidatePath('/commissioner')
@@ -341,35 +469,55 @@ export async function devResetWeekToWednesday(weekId: string) {
   revalidatePath('/home')
 }
 
-export async function invitePlayer(email: string) {
+// Sim 2 — Thursday done: lines set + slate published → week open
+export async function devSimulateThursdayDone(weekId: string, seasonYear: number) {
+  devGuard()
   const user = await requireCommissioner()
   const db = createServiceClient()
 
-  // Check if already invited or already a user
-  const { data: existing } = await db
-    .from('invites')
-    .select('id')
-    .eq('email', email)
-    .maybeSingle()
+  await db.from('picks').delete().eq('week_id', weekId)
+  await db.from('announcements').delete().eq('week_id', weekId)
+  await db.from('games').delete().eq('week_id', weekId)
+  await db.from('games').insert(getMockGames().map((g) => ({ ...g, week_id: weekId })))
+  await db.from('weeks').update({ status: 'open' }).eq('id', weekId)
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'slate', content: '[Dev sim] Week is live — lines are set, picks are open.' })
 
-  if (existing) throw new Error('Player already invited')
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/home')
+}
 
-  const { data: existingUser } = await db
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .maybeSingle()
+// Sim 3 — Sunday done: results scored → sunday_complete
+export async function devSimulateSundayDone(weekId: string, seasonYear: number) {
+  devGuard()
+  const user = await requireCommissioner()
+  const db = createServiceClient()
 
-  if (existingUser) throw new Error('Player already in league')
+  await db.from('picks').delete().eq('week_id', weekId)
+  await db.from('announcements').delete().eq('week_id', weekId)
+  await db.from('games').delete().eq('week_id', weekId)
+  await devSetupSundayComplete(db, weekId, user.id)
+  await db.from('weeks').update({ status: 'sunday_complete' }).eq('id', weekId)
 
-  const { data: invite, error } = await db
-    .from('invites')
-    .insert({ email, invited_by: user.id })
-    .select()
-    .single()
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/home')
+}
 
-  if (error) throw new Error('Failed to create invite')
+// Sim 4 — Tiebreaker: results posted, MNF tiebreaker triggered
+export async function devSimulateTiebreaker(weekId: string, seasonYear: number) {
+  devGuard()
+  const user = await requireCommissioner()
+  const db = createServiceClient()
 
-  revalidatePath('/commissioner/league')
-  return invite
+  await db.from('picks').delete().eq('week_id', weekId)
+  await db.from('announcements').delete().eq('week_id', weekId)
+  await db.from('games').delete().eq('week_id', weekId)
+  await devSetupSundayComplete(db, weekId, user.id)
+  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'results', content: '[Dev sim] Results in — tiebreaker triggered.' })
+  await db.from('weeks').update({ status: 'tiebreaker' }).eq('id', weekId)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/home')
 }
