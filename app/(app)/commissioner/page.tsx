@@ -11,7 +11,6 @@ import {
   TiebreakerAnnouncementForm,
   TiebreakerResultsForm,
   AnnouncementForm,
-  CloseWeekButton,
   DevResetButton,
 } from '@/components/CommissionerActions'
 import SlateReview from '@/components/SlateReview'
@@ -57,6 +56,21 @@ export default async function CommissionerPage() {
     : { data: [] }
 
   const hasGames = (games ?? []).length > 0
+
+  // Per-game pick tallies (open state only)
+  let pickTallies: Record<string, { home: number; away: number }> = {}
+  if (status === 'open' && hasGames) {
+    const gameIds = (games ?? []).map((g: any) => g.id)
+    const { data: tallyPicks } = await db
+      .from('picks')
+      .select('game_id, picked_team')
+      .in('game_id', gameIds)
+    for (const pick of tallyPicks ?? []) {
+      if (!pickTallies[pick.game_id]) pickTallies[pick.game_id] = { home: 0, away: 0 }
+      if (pick.picked_team === 'home') pickTallies[pick.game_id].home++
+      else if (pick.picked_team === 'away') pickTallies[pick.game_id].away++
+    }
+  }
 
   // Perfect scorers (needed for sunday_complete + tiebreaker states)
   let perfectCount = 0
@@ -172,39 +186,40 @@ export default async function CommissionerPage() {
           </div>
         )}
 
-        {/* STATE: open → tracker + pre-SNF + fetch results */}
+        {/* STATE: open → slate with pick distribution + actions */}
         {status === 'open' && (
           <>
+            {/* Submission overview + post */}
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Live</span>
                 <span className="text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Picks open</span>
               </div>
               <SubmissionTracker weekId={activeWeek.id} />
-            </div>
-
-            {/* Pre-SNF update */}
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-              <div>
-                <span className="text-sm font-semibold text-white">Pre-SNF update</span>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Who's still perfect? Who's already out? Build the tension before Sunday Night Football.
-                </p>
+              <div className="border-t border-gray-800 pt-3">
+                <AnnouncementForm
+                  weekId={activeWeek.id}
+                  placeholder="Pre-SNF update, score check, trash talk — what's the move?"
+                  type="general"
+                />
               </div>
-              <AnnouncementForm
-                weekId={activeWeek.id}
-                placeholder="After the afternoon games — who's still alive heading into SNF?"
-                type="pre_snf_update"
-                label="Post pre-SNF update →"
-              />
             </div>
 
-            {/* Fetch results — shown after SNF ends */}
+            {/* Slate with per-game pick split */}
+            <SlateReview
+              weekId={activeWeek.id}
+              weekNumber={activeWeek.week_number}
+              games={(games ?? []) as any}
+              readOnly={true}
+              pickTallies={pickTallies}
+            />
+
+            {/* Fetch results — after SNF ends */}
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
               <div>
-                <span className="text-sm font-semibold text-white">Ready to close out the week?</span>
+                <span className="text-sm font-semibold text-white">Sunday's done?</span>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Run this after SNF ends to pull final scores and score all picks automatically.
+                  Pull final scores after SNF ends — picks get scored automatically.
                 </p>
               </div>
               <FetchResultsButton weekId={activeWeek.id} />
@@ -247,11 +262,7 @@ export default async function CommissionerPage() {
               )}
             </div>
 
-            <div className="border-t border-gray-800 pt-3 space-y-2">
-              <p className="text-xs text-gray-500">
-                Write your results post. This goes to the feed and officially closes the week
-                {perfectCount > threshold ? ' (or kicks off the tiebreaker).' : '.'}
-              </p>
+            <div className="border-t border-gray-800 pt-3">
               <ResultsAnnouncementForm
                 weekId={activeWeek.id}
                 perfectCount={perfectCount}
@@ -391,23 +402,24 @@ export default async function CommissionerPage() {
           </>
         )}
 
-        {/* STATE: results_posted → close week */}
+        {/* STATE: results_posted → done, cron closes on Wednesday */}
         {status === 'results_posted' && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Results posted</span>
-              <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">Results live</span>
+              <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Wrapped</span>
+              <span className="text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Results live</span>
             </div>
-            <p className="text-xs text-gray-500">Standings are updated. Close the week when everything looks good.</p>
-            <CloseWeekButton weekId={activeWeek.id} />
+            <p className="text-xs text-gray-500">Results are posted and standings are updated. Next week kicks off Wednesday.</p>
           </div>
         )}
       </section>
 
-      {/* ── Full slate (always visible once games exist) ── */}
-      {hasGames && activeWeek && (
+      {/* ── Full slate (pending + post-open states; open state shows slate inline above with tallies) ── */}
+      {hasGames && activeWeek && status !== 'open' && (
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">This week's slate</h2>
+          {status !== 'pending' && (
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">This week's slate</h2>
+          )}
           <SlateReview
             weekId={activeWeek.id}
             weekNumber={activeWeek.week_number}
@@ -418,18 +430,25 @@ export default async function CommissionerPage() {
         </section>
       )}
 
-      {/* ── General feed post ─────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Post to feed</h2>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <AnnouncementForm
-            weekId={activeWeek?.id ?? null}
-            placeholder="Share something with the league…"
-            type="general"
-            label="Post to feed →"
-          />
-        </div>
-      </section>
+      {/* ── General feed post (not shown in pending or open — those states have their own primary CTA) ── */}
+      {status !== 'open' && status !== 'pending' && (
+        <section className="space-y-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Post to feed</h2>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <AnnouncementForm
+              weekId={activeWeek?.id ?? null}
+              placeholder={
+                status === 'sunday_complete'
+                  ? "Tease the results before you post them, or just hype the league up…"
+                  : status === 'tiebreaker'
+                  ? "Build the MNF tension — let the league feel it…"
+                  : "Share something with the league…"
+              }
+              type="general"
+            />
+          </div>
+        </section>
+      )}
 
       {/* ── Dev tools ─────────────────────────────────────── */}
       {process.env.MOCK_ODDS === 'true' && activeWeek && (
@@ -437,7 +456,7 @@ export default async function CommissionerPage() {
           <h2 className="text-xs font-semibold text-yellow-600 uppercase tracking-widest">Dev tools</h2>
           <div className="bg-yellow-950/30 border border-yellow-900/50 rounded-xl p-4 space-y-2">
             <p className="text-xs text-yellow-700">Mock mode — not visible in production.</p>
-            <DevResetButton weekId={activeWeek.id} seasonYear={activeWeek.season_year} />
+            <DevResetButton weekId={activeWeek.id} weekNumber={activeWeek.week_number} seasonYear={activeWeek.season_year} />
           </div>
         </section>
       )}

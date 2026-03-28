@@ -69,7 +69,8 @@ function formatDay(iso: string) {
 // spread=0 means line not yet set → show "—"
 function spreadLabel(spread: number, isFav: boolean) {
   if (spread === 0) return '—'
-  return isFav ? `-${spread}` : `+${spread}`
+  const formatted = Number.isInteger(spread) ? `${spread}` : `${spread}`
+  return isFav ? `-${formatted}` : `+${formatted}`
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -82,7 +83,11 @@ type Game = {
   spread_favorite: string
   kickoff_time: string
   is_tiebreaker: boolean
+  result?: string
+  result_confirmed?: boolean
 }
+
+type PickTally = { home: number; away: number }
 
 // ── Team pill ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +120,7 @@ function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
   function handleSave() {
     const parsed = parseFloat(spread)
     if (isNaN(parsed) || parsed < 0) return
+    if (Math.round(parsed * 10) % 5 !== 0) return // only X.0 or X.5 allowed
     startTransition(async () => {
       await updateGameSpread(game.id, parsed, favorite)
       setSaved(true)
@@ -176,22 +182,29 @@ function GameRow({
   readOnly = false,
   isEditing,
   onToggleEdit,
+  tally,
 }: {
   game: Game
   readOnly?: boolean
   isEditing?: boolean
   onToggleEdit?: () => void
+  tally?: PickTally
 }) {
   const awayFav = game.spread_favorite === 'away'
   const homeFav = game.spread_favorite === 'home'
   const lineSet = game.spread > 0
+  const isFinal = game.result_confirmed === true
+  const awayWon = game.result === 'away_win'
+  const homeWon = game.result === 'home_win'
 
   const inner = (
     <>
       {/* Away team */}
       <div className="flex items-center gap-1.5">
         <TeamPill name={game.away_team} />
-        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${awayFav && lineSet ? 'text-white' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${
+          isFinal ? (awayWon ? 'text-green-400' : 'text-gray-600') : (awayFav && lineSet ? 'text-white' : 'text-gray-500')
+        }`}>
           {spreadLabel(game.spread, awayFav)}
         </span>
       </div>
@@ -201,17 +214,22 @@ function GameRow({
       {/* Home team */}
       <div className="flex items-center gap-1.5">
         <TeamPill name={game.home_team} />
-        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${homeFav && lineSet ? 'text-white' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${
+          isFinal ? (homeWon ? 'text-green-400' : 'text-gray-600') : (homeFav && lineSet ? 'text-white' : 'text-gray-500')
+        }`}>
           {spreadLabel(game.spread, homeFav)}
         </span>
       </div>
 
-      {/* Time + tiebreaker label */}
+      {/* Time / Final */}
       <div className="flex items-center gap-1.5 ml-auto pl-2 flex-shrink-0">
         {game.is_tiebreaker && (
           <span className="text-xs text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">TB</span>
         )}
-        <span className="text-xs text-gray-500">{formatTime(game.kickoff_time)}</span>
+        {isFinal
+          ? <span className="text-xs text-gray-600">Final</span>
+          : <span className="text-xs text-gray-500">{formatTime(game.kickoff_time)}</span>
+        }
       </div>
     </>
   )
@@ -231,13 +249,25 @@ function GameRow({
         <div className="w-full flex items-center justify-between py-2">{inner}</div>
       )}
       {canEdit && isEditing && <SpreadEditor game={game} onClose={() => onToggleEdit?.()} />}
+      {tally && (tally.home + tally.away) > 0 && (
+        <div className="flex items-center gap-2 pb-2">
+          <span className="text-xs text-gray-600 tabular-nums w-5 text-right">{tally.away}</span>
+          <div className="flex-1 flex h-1 rounded-full overflow-hidden bg-gray-800">
+            <div
+              className="bg-blue-600/50 h-full transition-all"
+              style={{ width: `${(tally.away / (tally.away + tally.home)) * 100}%` }}
+            />
+          </div>
+          <span className="text-xs text-gray-600 tabular-nums w-5">{tally.home}</span>
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Publish block ─────────────────────────────────────────────────────────────
 
-function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; weekNumber: number; allLinesSet: boolean }) {
+function PublishBlock({ weekId, weekNumber, allLinesSet, unsetCount }: { weekId: string; weekNumber: number; allLinesSet: boolean; unsetCount: number }) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -266,12 +296,17 @@ function PublishBlock({ weekId, weekNumber, allLinesSet }: { weekId: string; wee
         rows={3}
         className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
       />
+      {!allLinesSet && (
+        <p className="text-xs text-yellow-500">
+          {unsetCount} game{unsetCount > 1 ? 's' : ''} still need lines — sync again or tap to set manually.
+        </p>
+      )}
       <button
         onClick={handlePublish}
         disabled={pending || !allLinesSet}
         className="w-full py-3 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {pending ? 'Opening…' : allLinesSet ? 'Ship the slate — let \'em cook →' : 'Pull lines first, then we cook →'}
+        {pending ? 'Opening…' : allLinesSet ? 'Ship the slate — let \'em cook →' : `${unsetCount} line${unsetCount > 1 ? 's' : ''} missing — can\'t publish yet`}
       </button>
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
@@ -286,9 +321,10 @@ type Props = {
   seasonYear?: number
   games: Game[]
   readOnly?: boolean
+  pickTallies?: Record<string, PickTally>
 }
 
-export default function SlateReview({ weekId, weekNumber, seasonYear, games, readOnly = false }: Props) {
+export default function SlateReview({ weekId, weekNumber, seasonYear, games, readOnly = false, pickTallies }: Props) {
   const dayMap = new Map<string, Game[]>()
   for (const game of games) {
     const label = formatDay(game.kickoff_time)
@@ -332,7 +368,7 @@ export default function SlateReview({ weekId, weekNumber, seasonYear, games, rea
 
       {/* Publish form — above the slate so it's the first thing commissioner sees */}
       {!readOnly && (
-        <PublishBlock weekId={weekId} weekNumber={weekNumber} allLinesSet={allLinesSet} />
+        <PublishBlock weekId={weekId} weekNumber={weekNumber} allLinesSet={allLinesSet} unsetCount={unsetCount} />
       )}
 
       {/* Slate card — sync button anchored to top-right corner */}
@@ -361,6 +397,7 @@ export default function SlateReview({ weekId, weekNumber, seasonYear, games, rea
                   readOnly={effectiveReadOnly}
                   isEditing={editingId === game.id}
                   onToggleEdit={() => setEditingId(editingId === game.id ? null : game.id)}
+                  tally={pickTallies?.[game.id]}
                 />
               ))}
             </div>

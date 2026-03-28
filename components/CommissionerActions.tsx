@@ -9,11 +9,13 @@ import {
   postResultsAnnouncement,
   postTiebreakerAnnouncement,
   postTiebreakerResults,
-  closeWeek,
   postAnnouncement,
   updateGameSpread,
   devResetWeekToWednesday,
-  devSimulateThursdayDone,
+  devScoreThursdayGame,
+  devScorePreSNFGames,
+  devCompleteWeek,
+  devAdvanceToNextWeek,
   devSimulateSundayDone,
   devSimulateTiebreaker,
 } from '@/app/actions/commissioner'
@@ -256,7 +258,7 @@ export function ResultsAnnouncementForm({
         <div className="flex items-start gap-2 p-3 bg-yellow-950/40 border border-yellow-900/50 rounded-xl">
           <span className="text-yellow-500 text-xs mt-0.5">⚡</span>
           <p className="text-xs text-yellow-400">
-            {perfectCount} players went perfect — posting this will trigger the MNF tiebreaker.
+            {perfectCount} players went perfect — this post will trigger the MNF tiebreaker.
           </p>
         </div>
       )}
@@ -264,23 +266,15 @@ export function ResultsAnnouncementForm({
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder={placeholder}
-        rows={4}
+        rows={3}
         className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
       />
       <button
         onClick={handlePost}
         disabled={!content.trim() || pending}
-        className={`w-full py-2.5 px-4 rounded-xl text-white text-sm font-semibold disabled:opacity-40 transition-colors ${
-          needsTiebreaker
-            ? 'bg-yellow-600 active:bg-yellow-700'
-            : 'bg-green-600 active:bg-green-700'
-        }`}
+        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
       >
-        {pending
-          ? 'Posting…'
-          : needsTiebreaker
-          ? 'Post results + launch tiebreaker →'
-          : 'Post results + close week →'}
+        {pending ? 'Posting…' : 'Post →'}
       </button>
     </div>
   )
@@ -347,33 +341,17 @@ export function TiebreakerResultsForm({ weekId }: { weekId: string }) {
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="MNF tiebreaker result is in. Here's who takes it…"
-        rows={4}
+        rows={3}
         className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-gray-600"
       />
       <button
         onClick={handlePost}
         disabled={!content.trim() || pending}
-        className="w-full py-2.5 px-4 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
+        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
       >
-        {pending ? 'Posting…' : 'Post tiebreaker results + close week →'}
+        {pending ? 'Posting…' : 'Post →'}
       </button>
     </div>
-  )
-}
-
-// ─── Close Week ───────────────────────────────────────────────────────────────
-
-export function CloseWeekButton({ weekId }: { weekId: string }) {
-  const [pending, startTransition] = useTransition()
-
-  return (
-    <button
-      onClick={() => startTransition(() => closeWeek(weekId))}
-      disabled={pending}
-      className="w-full py-2.5 px-4 rounded-xl bg-gray-700 active:bg-gray-600 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
-    >
-      {pending ? 'Closing…' : 'Close week'}
-    </button>
   )
 }
 
@@ -407,24 +385,37 @@ function DevButton({
   )
 }
 
-export function DevResetButton({ weekId, seasonYear }: { weekId: string; seasonYear: number }) {
+export function DevResetButton({ weekId, weekNumber, seasonYear }: { weekId: string; weekNumber: number; seasonYear: number }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-yellow-700 font-medium">Simulate weekly flow:</p>
+      <p className="text-xs text-yellow-600 font-semibold">Step by step</p>
       <DevButton
-        label="↩ Reset (wipe everything)"
+        label="↩ Wednesday — reset (wipe picks + announcements, schedule reloads)"
         action={() => devResetWeekToWednesday(weekId)}
       />
       <DevButton
-        label="→ Thursday done — lines set, slate posted (test pre-SNF update)"
-        action={() => devSimulateThursdayDone(weekId, seasonYear)}
+        label="→ Friday — Thursday result in (BAL wins, covers; scores Thu picks)"
+        action={() => devScoreThursdayGame(weekId)}
       />
       <DevButton
-        label="→ Sunday done — results scored (test writing results post)"
+        label="→ Pre-SNF — early + afternoon games final (scores those picks)"
+        action={() => devScorePreSNFGames(weekId)}
+      />
+      <DevButton
+        label="→ SNF final — all games done, week ready for results post"
+        action={() => devCompleteWeek(weekId)}
+      />
+      <DevButton
+        label="→ Next Wednesday — close week, next week loads up"
+        action={() => devAdvanceToNextWeek(weekId, weekNumber, seasonYear)}
+      />
+      <p className="text-xs text-yellow-600 font-semibold pt-1">Quick jumps (reset + advance)</p>
+      <DevButton
+        label="⤳ Jump to: all scored, pending results post"
         action={() => devSimulateSundayDone(weekId, seasonYear)}
       />
       <DevButton
-        label="→ Tiebreaker — results posted, MNF up (test full tiebreaker flow)"
+        label="⤳ Jump to: tiebreaker flow"
         action={() => devSimulateTiebreaker(weekId, seasonYear)}
       />
     </div>
@@ -437,7 +428,7 @@ export function AnnouncementForm({
   weekId,
   placeholder,
   type = 'general',
-  label = 'Post announcement',
+  label = 'Post →',
 }: {
   weekId: string | null
   placeholder: string

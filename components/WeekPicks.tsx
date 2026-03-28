@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import Image from 'next/image'
 import type { Week, Game, Pick } from '@/app/(app)/week/page'
 
@@ -242,6 +242,21 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
     }
     return lp
   })
+
+  // Sync server results into local savedPicks when game results come in
+  useEffect(() => {
+    setSavedPicks((prev) => {
+      const merged = { ...prev }
+      let changed = false
+      for (const [gid, pick] of Object.entries(userPicks)) {
+        if (merged[gid] && merged[gid].result !== pick.result) {
+          merged[gid] = pick
+          changed = true
+        }
+      }
+      return changed ? merged : prev
+    })
+  }, [userPicks])
 
   const dayGroups = groupGames(games)
   const madeCount = Object.keys(localPicks).length

@@ -56,6 +56,23 @@ function computeATSResult(
   }
 }
 
+// ─── Shared: score picks for a game ──────────────────────────────────────────
+
+async function scorePicksForGame(
+  db: ReturnType<typeof createServiceClient>,
+  gameId: string,
+  gameResult: 'home_win' | 'away_win' | 'push'
+) {
+  const { data: picks } = await db.from('picks').select('id, picked_team').eq('game_id', gameId)
+  for (const pick of picks ?? []) {
+    const result =
+      gameResult === 'push' ? 'push'
+      : gameResult === 'home_win' ? (pick.picked_team === 'home' ? 'win' : 'loss')
+      : (pick.picked_team === 'away' ? 'win' : 'loss')
+    await db.from('picks').update({ result }).eq('id', pick.id)
+  }
+}
+
 // ─── Shared: upsert week + populate games ────────────────────────────────────
 
 async function upsertWeekWithGames(
@@ -205,6 +222,7 @@ export async function fetchResults(weekId: string) {
     if (!score) continue
     const result = computeATSResult(score.home_score, score.away_score, (game as any).spread, (game as any).spread_favorite)
     await db.from('games').update({ result, result_confirmed: true }).eq('id', game.id)
+    await scorePicksForGame(db, game.id, result)
     updatedCount++
   }
 
@@ -357,15 +375,6 @@ export async function postTiebreakerResults(weekId: string, content: string) {
   revalidatePath('/week')
 }
 
-// ─── Close week ───────────────────────────────────────────────────────────────
-
-export async function closeWeek(weekId: string) {
-  await requireCommissioner()
-  const db = createServiceClient()
-  await db.from('weeks').update({ status: 'closed' }).eq('id', weekId)
-  revalidatePath('/commissioner')
-}
-
 // ─── General announcement ─────────────────────────────────────────────────────
 
 export async function postAnnouncement(weekId: string | null, content: string, type: string = 'general') {
@@ -469,18 +478,104 @@ export async function devResetWeekToWednesday(weekId: string) {
   revalidatePath('/home')
 }
 
-// Sim 2 — Thursday done: lines set + slate published → week open
-export async function devSimulateThursdayDone(weekId: string, seasonYear: number) {
+// Sim 1b — Thursday result: score Thursday game + picks, week stays open
+export async function devScoreThursdayGame(weekId: string) {
   devGuard()
-  const user = await requireCommissioner()
+  await requireCommissioner()
   const db = createServiceClient()
 
-  await db.from('picks').delete().eq('week_id', weekId)
-  await db.from('announcements').delete().eq('week_id', weekId)
-  await db.from('games').delete().eq('week_id', weekId)
-  await db.from('games').insert(getMockGames().map((g) => ({ ...g, week_id: weekId })))
-  await db.from('weeks').update({ status: 'open' }).eq('id', weekId)
-  await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'slate', content: '[Dev sim] Week is live — lines are set, picks are open.' })
+  const { data: thursdayGame } = await db
+    .from('games')
+    .select('id, external_id, spread, spread_favorite')
+    .eq('week_id', weekId)
+    .eq('day', 'thursday')
+    .eq('is_tiebreaker', false)
+    .maybeSingle()
+
+  if (!thursdayGame) throw new Error('No Thursday game found')
+
+  const score = getMockScores().find((s) => s.external_id === (thursdayGame as any).external_id)
+  if (!score) throw new Error('No mock score for Thursday game')
+
+  const result = computeATSResult(score.home_score, score.away_score, (thursdayGame as any).spread, (thursdayGame as any).spread_favorite)
+  await db.from('games').update({ result, result_confirmed: true }).eq('id', thursdayGame.id)
+  await scorePicksForGame(db, thursdayGame.id, result)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+}
+
+// Sim: Pre-SNF — score all Sunday games except the last kickoff (SNF)
+export async function devScorePreSNFGames(weekId: string) {
+  devGuard()
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: sundayGames } = await db
+    .from('games')
+    .select('id, external_id, spread, spread_favorite, kickoff_time')
+    .eq('week_id', weekId)
+    .eq('day', 'sunday')
+    .eq('is_tiebreaker', false)
+    .order('kickoff_time', { ascending: true })
+
+  if (!sundayGames || sundayGames.length === 0) throw new Error('No Sunday games found')
+
+  const snfKickoff = sundayGames[sundayGames.length - 1].kickoff_time
+  const preSNF = sundayGames.filter((g: any) => g.kickoff_time < snfKickoff)
+
+  for (const game of preSNF) {
+    const score = getMockScores().find((s) => s.external_id === (game as any).external_id)
+    if (!score) continue
+    const result = computeATSResult(score.home_score, score.away_score, (game as any).spread, (game as any).spread_favorite)
+    await db.from('games').update({ result, result_confirmed: true }).eq('id', game.id)
+    await scorePicksForGame(db, game.id, result)
+  }
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+}
+
+// Sim: SNF final — score remaining games, move to sunday_complete
+export async function devCompleteWeek(weekId: string) {
+  devGuard()
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: unscoredGames } = await db
+    .from('games')
+    .select('id, external_id, spread, spread_favorite')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', false)
+    .neq('result_confirmed', true)
+
+  for (const game of unscoredGames ?? []) {
+    const score = getMockScores().find((s) => s.external_id === (game as any).external_id)
+    if (!score) continue
+    const result = computeATSResult(score.home_score, score.away_score, (game as any).spread, (game as any).spread_favorite)
+    await db.from('games').update({ result, result_confirmed: true }).eq('id', game.id)
+    await scorePicksForGame(db, game.id, result)
+  }
+
+  await db.from('weeks').update({ status: 'sunday_complete' }).eq('id', weekId)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/home')
+}
+
+// Sim: Next Wednesday — close current week, start next with schedule
+export async function devAdvanceToNextWeek(weekId: string, weekNumber: number, seasonYear: number) {
+  devGuard()
+  await requireCommissioner()
+  const db = createServiceClient()
+
+  await db.from('weeks').update({ status: 'closed' }).eq('id', weekId)
+
+  const next = weekNumber + 1
+  if (next <= 18) {
+    await upsertWeekWithGames(db, next, seasonYear, getMockSchedule())
+  }
 
   revalidatePath('/commissioner')
   revalidatePath('/week')
