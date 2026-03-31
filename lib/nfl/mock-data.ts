@@ -59,6 +59,25 @@ export function getMockScores() {
   ]
 }
 
+// MNF schedule entry — teams + kickoff known, spread=0 until line is fetched
+export function getMockMNFSchedule() {
+  const now = new Date()
+  const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + daysUntilMonday)
+  monday.setHours(20, 15, 0, 0)
+  return {
+    home_team: 'Philadelphia Eagles',
+    away_team: 'Chicago Bears',
+    spread: 0,
+    spread_favorite: 'home' as const,
+    kickoff_time: monday.toISOString(),
+    day: 'monday',
+    is_tiebreaker: true,
+    external_id: 'mock_mnf',
+  }
+}
+
 export function getMockMNFGame() {
   const now = new Date()
   const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7

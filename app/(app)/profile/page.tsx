@@ -18,7 +18,7 @@ export default async function ProfilePage() {
     <div className="p-4 space-y-8">
       {/* Profile header */}
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-white">{profile?.name ?? user.email}</h1>
+        <p className="text-2xl font-bold text-white">{profile?.name ?? user.email}</p>
         <p className="text-sm text-gray-500">{profile?.email ?? user.email}</p>
         {profile?.role === 'commissioner' && (
           <span className="inline-block text-xs font-semibold text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full">

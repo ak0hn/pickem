@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import {
   getMockSchedule,
+  getMockMNFSchedule,
   getMockGames,
   getMockScores,
   getMockMNFGame,
@@ -108,15 +109,39 @@ export async function fetchSchedule(weekNumber: number, seasonYear: number) {
   const db = createServiceClient()
 
   let games
+  let mnfGame: any = null
+
   if (process.env.MOCK_ODDS === 'true') {
     games = getMockSchedule()
+    mnfGame = getMockMNFSchedule()
   } else {
     const { fetchNFLOdds } = await import('@/lib/odds-api/client')
     const oddsData = await fetchNFLOdds()
-    games = parseOddsApiGames(oddsData).map((g) => ({ ...g, spread: 0, spread_favorite: 'home' as const }))
+    const allParsed = parseOddsApiGames(oddsData).map((g) => ({ ...g, spread: 0, spread_favorite: 'home' as const }))
+    games = allParsed.filter((g) => g.day !== 'monday')
+    // Store MNF separately — teams known now, spread fetched later
+    const mondayEvent = (oddsData as any[]).find((e) => new Date(e.commence_time).getDay() === 1)
+    if (mondayEvent) {
+      mnfGame = {
+        home_team: mondayEvent.home_team,
+        away_team: mondayEvent.away_team,
+        spread: 0,
+        spread_favorite: 'home' as const,
+        kickoff_time: new Date(mondayEvent.commence_time).toISOString(),
+        day: 'monday',
+        is_tiebreaker: true,
+        external_id: mondayEvent.id,
+      }
+    }
   }
 
-  await upsertWeekWithGames(db, weekNumber, seasonYear, games)
+  const week = await upsertWeekWithGames(db, weekNumber, seasonYear, games)
+
+  // Always store MNF — teams visible from day one, spread=0 until fetchMNFLine
+  if (mnfGame) {
+    await db.from('games').delete().eq('week_id', week.id).eq('is_tiebreaker', true)
+    await db.from('games').insert({ ...mnfGame, week_id: week.id })
+  }
 
   revalidatePath('/commissioner')
   revalidatePath('/week')
@@ -274,11 +299,13 @@ export async function fetchMNFLine(weekId: string) {
   await requireCommissioner()
   const db = createServiceClient()
 
-  await db.from('games').delete().eq('week_id', weekId).eq('is_tiebreaker', true)
+  let spread: number
+  let spreadFavorite: 'home' | 'away'
 
-  let mnfGame
   if (process.env.MOCK_ODDS === 'true') {
-    mnfGame = getMockMNFGame()
+    const mnfGame = getMockMNFGame()
+    spread = mnfGame.spread
+    spreadFavorite = mnfGame.spread_favorite
   } else {
     const { fetchNFLOdds } = await import('@/lib/odds-api/client')
     const oddsData = await fetchNFLOdds()
@@ -293,19 +320,26 @@ export async function fetchMNFLine(weekId: string) {
     if (!homeOutcome) throw new Error('Could not parse MNF spread')
 
     const homeSpread = homeOutcome.point
-    mnfGame = {
-      home_team: event.home_team,
-      away_team: event.away_team,
-      spread: Math.abs(homeSpread),
-      spread_favorite: homeSpread < 0 ? 'home' : 'away',
-      kickoff_time: new Date(event.commence_time).toISOString(),
-      day: 'monday',
-      is_tiebreaker: true,
-      external_id: event.id,
-    }
+    spread = Math.abs(homeSpread)
+    spreadFavorite = homeSpread < 0 ? 'home' : 'away'
   }
 
-  await db.from('games').insert({ ...mnfGame, week_id: weekId })
+  // Update existing MNF game (stored at schedule fetch) with the spread
+  const { data: existing } = await db
+    .from('games')
+    .select('id')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', true)
+    .maybeSingle()
+
+  if (existing) {
+    await db.from('games').update({ spread, spread_favorite: spreadFavorite }).eq('id', existing.id)
+  } else {
+    // Fallback: MNF wasn't stored at schedule time, insert now
+    const mnfGame = getMockMNFGame()
+    await db.from('games').insert({ ...mnfGame, week_id: weekId, spread, spread_favorite: spreadFavorite })
+  }
+
   revalidatePath('/commissioner')
 }
 
@@ -366,6 +400,35 @@ export async function postTiebreakerResults(weekId: string, content: string) {
   const user = await requireCommissioner()
   const db = createServiceClient()
 
+  // Score the MNF tiebreaker game automatically on post
+  const { data: tbGame } = await db
+    .from('games')
+    .select('id, spread, spread_favorite')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', true)
+    .maybeSingle()
+
+  if (tbGame && !(tbGame as any).result_confirmed) {
+    let homeScore: number, awayScore: number
+
+    if (process.env.MOCK_ODDS === 'true') {
+      const mock = getMockMNFScore()
+      homeScore = mock.home_score
+      awayScore = mock.away_score
+    } else {
+      const { fetchNFLScores } = await import('@/lib/odds-api/client')
+      const raw = await fetchNFLScores(1)
+      const found = (raw as any[]).find((s) => s.id === (tbGame as any).external_id)
+      if (!found || !found.completed) throw new Error('MNF result not yet available — game may still be in progress')
+      homeScore = parseInt(found.scores?.find((sc: any) => sc.name === found.home_team)?.score ?? '0')
+      awayScore = parseInt(found.scores?.find((sc: any) => sc.name === found.away_team)?.score ?? '0')
+    }
+
+    const result = computeATSResult(homeScore, awayScore, (tbGame as any).spread, (tbGame as any).spread_favorite)
+    await db.from('games').update({ result, result_confirmed: true }).eq('id', tbGame.id)
+    await scorePicksForGame(db, tbGame.id, result)
+  }
+
   await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'results', content: content.trim() })
   await db.from('weeks').update({ status: 'results_posted' }).eq('id', weekId)
 
@@ -383,6 +446,15 @@ export async function postAnnouncement(weekId: string | null, content: string, t
   await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type, content })
   revalidatePath('/home')
   revalidatePath('/commissioner')
+}
+
+// ─── Edit announcement ────────────────────────────────────────────────────────
+
+export async function updateAnnouncement(id: string, content: string) {
+  await requireCommissioner()
+  const db = createServiceClient()
+  await db.from('announcements').update({ content }).eq('id', id)
+  revalidatePath('/home')
 }
 
 // ─── Spread override ──────────────────────────────────────────────────────────
@@ -471,6 +543,7 @@ export async function devResetWeekToWednesday(weekId: string) {
   await db.from('announcements').delete().eq('week_id', weekId)
   await db.from('games').delete().eq('week_id', weekId)
   await db.from('games').insert(getMockSchedule().map((g) => ({ ...g, week_id: weekId })))
+  await db.from('games').insert({ ...getMockMNFSchedule(), week_id: weekId })
   await db.from('weeks').update({ status: 'pending' }).eq('id', weekId)
 
   revalidatePath('/commissioner')
@@ -599,16 +672,147 @@ export async function devSimulateSundayDone(weekId: string, seasonYear: number) 
   revalidatePath('/home')
 }
 
-// Sim 4 — Tiebreaker: results posted, MNF tiebreaker triggered
+// Dev: score MNF tiebreaker game + any missing picks, then move to results_posted
+export async function devCompleteTiebreaker(weekId: string) {
+  devGuard()
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: tbGame } = await db
+    .from('games')
+    .select('id, spread, spread_favorite')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', true)
+    .maybeSingle()
+
+  if (!tbGame) throw new Error('No tiebreaker game found — fetch the MNF line first')
+
+  // Use mock MNF score
+  const { home_score, away_score } = getMockMNFScore()
+  const result = computeATSResult(home_score, away_score, (tbGame as any).spread, (tbGame as any).spread_favorite)
+
+  await db.from('games').update({ result, result_confirmed: true }).eq('id', tbGame.id)
+
+  // Ensure current user has a tiebreaker pick (create one if missing)
+  const { data: existingPick } = await db
+    .from('picks')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('game_id', tbGame.id)
+    .maybeSingle()
+
+  if (!existingPick) {
+    const pickedTeam = result === 'home_win' ? 'home' : 'away'
+    await db.from('picks').insert({
+      user_id: user.id,
+      game_id: tbGame.id,
+      week_id: weekId,
+      picked_team: pickedTeam,
+      result: 'win',
+    })
+  } else {
+    await scorePicksForGame(db, tbGame.id, result)
+  }
+
+  await db.from('weeks').update({ status: 'results_posted' }).eq('id', weekId)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+  revalidatePath('/home')
+}
+
+// Dev: force all picks for current user to 'win' (simulates going perfect)
+export async function devGrantPerfectScore(weekId: string) {
+  devGuard()
+  const user = await requireCommissioner()
+  const db = createServiceClient()
+
+  const { data: games } = await db
+    .from('games')
+    .select('id')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', false)
+
+  if (!games || games.length === 0) throw new Error('No games found — publish the slate first')
+
+  const gameIds = games.map((g: any) => g.id)
+
+  // Ensure a pick row exists for every game
+  const { data: existing } = await db
+    .from('picks')
+    .select('game_id')
+    .eq('user_id', user.id)
+    .in('game_id', gameIds)
+
+  const existingGameIds = new Set((existing ?? []).map((p: any) => p.game_id))
+  const missing = gameIds.filter((id: string) => !existingGameIds.has(id))
+
+  if (missing.length > 0) {
+    await db.from('picks').insert(
+      missing.map((game_id: string) => ({
+        user_id: user.id,
+        game_id,
+        week_id: weekId,
+        picked_team: 'home',
+        result: 'win',
+      }))
+    )
+  }
+
+  // Set all existing picks to win
+  await db
+    .from('picks')
+    .update({ result: 'win' })
+    .eq('user_id', user.id)
+    .in('game_id', gameIds)
+
+  revalidatePath('/commissioner')
+  revalidatePath('/week')
+}
+
+// Sim 4 — Tiebreaker: results scored, you as perfect scorer, status → tiebreaker
 export async function devSimulateTiebreaker(weekId: string, seasonYear: number) {
   devGuard()
   const user = await requireCommissioner()
   const db = createServiceClient()
 
-  await db.from('picks').delete().eq('week_id', weekId)
+  // Only wipe announcements + non-tiebreaker games — preserve existing picks if present
   await db.from('announcements').delete().eq('week_id', weekId)
-  await db.from('games').delete().eq('week_id', weekId)
+  await db.from('games').delete().eq('week_id', weekId).eq('is_tiebreaker', false)
   await devSetupSundayComplete(db, weekId, user.id)
+
+  // Ensure current user has a perfect pick record for this week
+  const { data: games } = await db
+    .from('games')
+    .select('id')
+    .eq('week_id', weekId)
+    .eq('is_tiebreaker', false)
+
+  const gameIds = (games ?? []).map((g: any) => g.id)
+
+  const { data: existingPicks } = await db
+    .from('picks')
+    .select('game_id')
+    .eq('user_id', user.id)
+    .in('game_id', gameIds)
+
+  const existingGameIds = new Set((existingPicks ?? []).map((p: any) => p.game_id))
+  const missing = gameIds.filter((id: string) => !existingGameIds.has(id))
+
+  if (missing.length > 0) {
+    await db.from('picks').insert(
+      missing.map((game_id: string) => ({
+        user_id: user.id,
+        game_id,
+        week_id: weekId,
+        picked_team: 'home',
+        result: 'win',
+      }))
+    )
+  }
+
+  await db.from('picks').update({ result: 'win' }).eq('user_id', user.id).in('game_id', gameIds)
+
   await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type: 'results', content: '[Dev sim] Results in — tiebreaker triggered.' })
   await db.from('weeks').update({ status: 'tiebreaker' }).eq('id', weekId)
 

@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import AnnouncementCard from '@/components/AnnouncementCard'
 
 export default async function FeedPage() {
   const supabase = await createClient()
@@ -7,6 +8,9 @@ export default async function FeedPage() {
   if (!user) redirect('/login')
 
   const db = createServiceClient()
+
+  const { data: profile } = await db.from('users').select('role').eq('id', user.id).maybeSingle()
+  const isCommissioner = profile?.role === 'commissioner'
 
   // Current active week
   const { data: weeks } = await db
@@ -39,62 +43,45 @@ export default async function FeedPage() {
   // Recent announcements
   const { data: announcements } = await db
     .from('announcements')
-    .select('id, type, content, created_at, author:author_id(name)')
+    .select('id, type, week_id, content, created_at, author:author_id(name), week:week_id(week_number)')
     .order('created_at', { ascending: false })
     .limit(10)
 
-  const pct = totalPlayers > 0 ? Math.round((submittedCount / totalPlayers) * 100) : 0
+  const announcementIds = (announcements ?? []).map((a: any) => a.id)
 
-  const statusLabel: Record<string, string> = {
-    open: 'Picks open',
-    sunday_complete: 'Games in progress',
-    tiebreaker: 'Tiebreaker',
-    results_posted: 'Results posted',
+  // Reactions + comment counts for feed cards
+  const [{ data: reactions }, { data: commentRows }] = await Promise.all([
+    announcementIds.length > 0
+      ? db.from('reactions').select('announcement_id, user_id, emoji').in('announcement_id', announcementIds).eq('emoji', '👍')
+      : { data: [] },
+    announcementIds.length > 0
+      ? db.from('comments').select('announcement_id').in('announcement_id', announcementIds)
+      : { data: [] },
+  ])
+
+  const likeCounts: Record<string, number> = {}
+  const myLikes = new Set<string>()
+  for (const r of reactions ?? []) {
+    likeCounts[r.announcement_id] = (likeCounts[r.announcement_id] ?? 0) + 1
+    if (r.user_id === user.id) myLikes.add(r.announcement_id)
   }
 
+  const commentCounts: Record<string, number> = {}
+  for (const c of commentRows ?? []) {
+    commentCounts[c.announcement_id] = (commentCounts[c.announcement_id] ?? 0) + 1
+  }
+
+  const pct = totalPlayers > 0 ? Math.round((submittedCount / totalPlayers) * 100) : 0
+
   return (
-    <div className="p-4 space-y-5">
-      <h1 className="text-2xl font-bold text-white">Feed</h1>
-
-      {/* ── This Week tile ──────────────────────────────── */}
-      {week ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-white">Week {week.week_number}</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              week.status === 'open'
-                ? 'text-green-400 bg-green-400/10'
-                : week.status === 'results_posted'
-                ? 'text-blue-400 bg-blue-400/10'
-                : 'text-orange-400 bg-orange-400/10'
-            }`}>
-              {statusLabel[week.status] ?? week.status}
-            </span>
+    <div className="px-4 pt-4 pb-4 space-y-3">
+      {/* Submission bar — picks open state */}
+      {week?.status === 'open' && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-gray-800 rounded-full h-1">
+            <div className="bg-green-500 h-1 rounded-full transition-all" style={{ width: `${pct}%` }} />
           </div>
-
-          {/* Submission bar */}
-          {week.status === 'open' && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>{submittedCount} of {totalPlayers} players have picked</span>
-                <span>{pct}%</span>
-              </div>
-              <div className="w-full bg-gray-800 rounded-full h-1.5">
-                <div
-                  className="bg-blue-500 h-1.5 rounded-full transition-all"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {week.status === 'results_posted' && (
-            <p className="text-xs text-gray-500">Results are in — check the standings.</p>
-          )}
-        </div>
-      ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <p className="text-sm text-gray-500">No active week. Check back Thursday.</p>
+          <span className="text-xs text-gray-500 shrink-0">{submittedCount}/{totalPlayers} picked</span>
         </div>
       )}
 
@@ -104,20 +91,19 @@ export default async function FeedPage() {
           <p className="text-sm text-gray-600 text-center py-8">Nothing posted yet.</p>
         ) : (
           (announcements ?? []).map((a: any) => (
-            <div key={a.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-400">
-                  {a.author?.name ?? 'Commissioner'}
-                </span>
-                <span className="text-xs text-gray-600">
-                  {new Date(a.created_at).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
-                </span>
-              </div>
-              <p className="text-sm text-white leading-relaxed">{a.content}</p>
-            </div>
+            <AnnouncementCard
+              key={a.id}
+              id={a.id}
+              type={a.type}
+              weekId={a.week_id ?? null}
+              weekNumber={a.week?.week_number ?? null}
+              content={a.content}
+              createdAt={a.created_at}
+              isCommissioner={isCommissioner}
+              likeCount={likeCounts[a.id] ?? 0}
+              hasLiked={myLikes.has(a.id)}
+              commentCount={commentCounts[a.id] ?? 0}
+            />
           ))
         )}
       </div>

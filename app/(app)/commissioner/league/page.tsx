@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { InvitePlayerForm, FetchHoursSetting, PushCountsAsSetting } from '@/components/LeagueActions'
+import PlayerCombobox from '@/components/PlayerCombobox'
 
 export default async function LeaguePage() {
   const supabase = await createClient()
@@ -18,8 +19,9 @@ export default async function LeaguePage() {
 
   if (profile?.role !== 'commissioner') redirect('/home')
 
-  const [{ data: players }, { data: invites }, { data: leagueSettings }] = await Promise.all([
+  const [{ data: players }, { data: allUsers }, { data: invites }, { data: leagueSettings }] = await Promise.all([
     db.from('users').select('id, name, email, created_at').eq('role', 'player').order('name'),
+    db.from('users').select('id, name').order('name'),
     db.from('invites').select('id, email, accepted_at, created_at').order('created_at', { ascending: false }),
     db.from('league').select('*').limit(1).maybeSingle(),
   ])
@@ -33,6 +35,12 @@ export default async function LeaguePage() {
         </Link>
       </div>
       <h1 className="text-2xl font-bold text-white -mt-2">League</h1>
+
+      {/* ── Player picks lookup ─────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Player picks</h2>
+        <PlayerCombobox players={allUsers ?? []} />
+      </section>
 
       {/* ── Players ─────────────────────────────────────────── */}
       <section className="space-y-3">

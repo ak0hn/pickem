@@ -2,75 +2,20 @@
 
 import { useState, useTransition } from 'react'
 import { publishWeek, updateGameSpread, fetchAndSaveLines } from '@/app/actions/commissioner'
+import { getTeam, ALL_NFL_TEAMS } from '@/lib/nfl/teams'
 
-// ── Team data ─────────────────────────────────────────────────────────────────
-
-type TeamInfo = { abbr: string; color: string; light?: boolean }
-
-const NFL_TEAMS: Record<string, TeamInfo> = {
-  'Arizona Cardinals':     { abbr: 'ARI', color: '#97233F' },
-  'Atlanta Falcons':       { abbr: 'ATL', color: '#A71930' },
-  'Baltimore Ravens':      { abbr: 'BAL', color: '#241773' },
-  'Buffalo Bills':         { abbr: 'BUF', color: '#00338D' },
-  'Carolina Panthers':     { abbr: 'CAR', color: '#0085CA' },
-  'Chicago Bears':         { abbr: 'CHI', color: '#0B162A' },
-  'Cincinnati Bengals':    { abbr: 'CIN', color: '#FB4F14' },
-  'Cleveland Browns':      { abbr: 'CLE', color: '#311D00' },
-  'Dallas Cowboys':        { abbr: 'DAL', color: '#003594' },
-  'Denver Broncos':        { abbr: 'DEN', color: '#FB4F14' },
-  'Detroit Lions':         { abbr: 'DET', color: '#0076B6' },
-  'Green Bay Packers':     { abbr: 'GB',  color: '#203731' },
-  'Houston Texans':        { abbr: 'HOU', color: '#03202F' },
-  'Indianapolis Colts':    { abbr: 'IND', color: '#002C5F' },
-  'Jacksonville Jaguars':  { abbr: 'JAX', color: '#006778' },
-  'Kansas City Chiefs':    { abbr: 'KC',  color: '#E31837' },
-  'Las Vegas Raiders':     { abbr: 'LV',  color: '#A5ACAF', light: true },
-  'Los Angeles Chargers':  { abbr: 'LAC', color: '#0080C6' },
-  'Los Angeles Rams':      { abbr: 'LAR', color: '#003594' },
-  'Miami Dolphins':        { abbr: 'MIA', color: '#008E97' },
-  'Minnesota Vikings':     { abbr: 'MIN', color: '#4F2683' },
-  'New England Patriots':  { abbr: 'NE',  color: '#002244' },
-  'New Orleans Saints':    { abbr: 'NO',  color: '#9F8958', light: true },
-  'New York Giants':       { abbr: 'NYG', color: '#0B2265' },
-  'New York Jets':         { abbr: 'NYJ', color: '#125740' },
-  'Philadelphia Eagles':   { abbr: 'PHI', color: '#004C54' },
-  'Pittsburgh Steelers':   { abbr: 'PIT', color: '#FFB612', light: true },
-  'San Francisco 49ers':   { abbr: 'SF',  color: '#AA0000' },
-  'Seattle Seahawks':      { abbr: 'SEA', color: '#002244' },
-  'Tampa Bay Buccaneers':  { abbr: 'TB',  color: '#D50A0A' },
-  'Tennessee Titans':      { abbr: 'TEN', color: '#0C2340' },
-  'Washington Commanders': { abbr: 'WSH', color: '#5A1414' },
+function formatKickoff(iso: string) {
+  const d = new Date(iso)
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+  const h = d.getHours() % 12 || 12
+  const m = d.getMinutes()
+  return `${days[d.getDay()]} ${h}:${String(m).padStart(2, '0')}`
 }
 
-const ALL_NFL_TEAMS = Object.keys(NFL_TEAMS)
-
-function getTeam(name: string): TeamInfo {
-  return NFL_TEAMS[name] ?? { abbr: name.slice(0, 3).toUpperCase(), color: '#374151' }
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'America/New_York',
-  }).replace(':00', '').toLowerCase() + ' ET'
-}
-
-function formatDay(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-// spread=0 means line not yet set → show "—"
-function spreadLabel(spread: number, isFav: boolean) {
+function homeSpreadLabel(spread: number, favorite: 'home' | 'away' | string) {
   if (spread === 0) return '—'
-  const formatted = Number.isInteger(spread) ? `${spread}` : `${spread}`
-  return isFav ? `-${formatted}` : `+${formatted}`
+  const n = Number.isInteger(spread) ? `${spread}` : `${spread}`
+  return favorite === 'home' ? `-${n}` : `+${n}`
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -89,23 +34,6 @@ type Game = {
 
 type PickTally = { home: number; away: number }
 
-// ── Team pill ─────────────────────────────────────────────────────────────────
-
-function TeamPill({ name }: { name: string }) {
-  const team = getTeam(name)
-  return (
-    <span
-      className="inline-block px-2 py-0.5 rounded-md text-xs font-bold tracking-wide w-10 text-center"
-      style={{
-        backgroundColor: team.color,
-        color: team.light ? '#111827' : '#ffffff',
-      }}
-    >
-      {team.abbr}
-    </span>
-  )
-}
-
 // ── Inline spread editor ──────────────────────────────────────────────────────
 
 function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
@@ -120,7 +48,7 @@ function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
   function handleSave() {
     const parsed = parseFloat(spread)
     if (isNaN(parsed) || parsed < 0) return
-    if (Math.round(parsed * 10) % 5 !== 0) return // only X.0 or X.5 allowed
+    if (Math.round(parsed * 10) % 5 !== 0) return
     startTransition(async () => {
       await updateGameSpread(game.id, parsed, favorite)
       setSaved(true)
@@ -129,145 +57,167 @@ function SpreadEditor({ game, onClose }: { game: Game; onClose: () => void }) {
   }
 
   return (
-    <div className="flex items-center gap-2 mt-1.5 mb-1 px-3 py-2 bg-gray-800 rounded-lg">
-      {/* Favorite toggle */}
-      <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs">
-        {(['away', 'home'] as const).map((side) => {
-          const team = side === 'away' ? awayTeam : homeTeam
-          return (
-            <button
-              key={side}
-              onClick={() => setFavorite(side)}
-              className="px-2.5 py-1.5 font-bold transition-colors"
-              style={
-                favorite === side
-                  ? { backgroundColor: team.color, color: team.light ? '#111' : '#fff' }
-                  : { backgroundColor: 'transparent', color: '#9ca3af' }
-              }
-            >
-              {team.abbr}
-            </button>
-          )
-        })}
-      </div>
-
-      <span className="text-gray-600 text-xs">by</span>
-
-      <input
-        type="number"
-        value={spread}
-        onChange={(e) => setSpread(e.target.value)}
-        step="0.5"
-        min="0"
-        placeholder=""
-        className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-gray-600"
-      />
-
-      <button
-        onClick={handleSave}
-        disabled={pending}
-        className="text-xs text-blue-400 font-semibold disabled:opacity-40 ml-1"
-      >
-        {saved ? '✓' : pending ? '…' : 'Save'}
-      </button>
-      <button onClick={onClose} className="text-xs text-gray-600 ml-auto">✕</button>
-    </div>
+    <tr>
+      <td colSpan={5} className="px-3 pb-2">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded-lg mt-0.5">
+          <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs">
+            {(['away', 'home'] as const).map((side) => {
+              const team = side === 'away' ? awayTeam : homeTeam
+              return (
+                <button
+                  key={side}
+                  onClick={() => setFavorite(side)}
+                  className="px-2.5 py-1.5 font-bold transition-colors"
+                  style={
+                    favorite === side
+                      ? { backgroundColor: team.color, color: team.light ? '#111' : '#fff' }
+                      : { backgroundColor: 'transparent', color: '#9ca3af' }
+                  }
+                >
+                  {team.abbr}
+                </button>
+              )
+            })}
+          </div>
+          <span className="text-gray-600 text-xs">by</span>
+          <input
+            type="number"
+            value={spread}
+            onChange={(e) => setSpread(e.target.value)}
+            step="0.5"
+            min="0"
+            className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-gray-600"
+          />
+          <button
+            onClick={handleSave}
+            disabled={pending}
+            className="text-xs text-blue-400 font-semibold disabled:opacity-40 ml-1"
+          >
+            {saved ? '✓' : pending ? '…' : 'Save'}
+          </button>
+          <button onClick={onClose} className="text-xs text-gray-600 ml-auto">✕</button>
+        </div>
+      </td>
+    </tr>
   )
 }
 
-// ── Compact game row ──────────────────────────────────────────────────────────
+// ── Game row ──────────────────────────────────────────────────────────────────
 
 function GameRow({
   game,
+  index,
   readOnly = false,
   isEditing,
   onToggleEdit,
   tally,
 }: {
   game: Game
+  index: number
   readOnly?: boolean
   isEditing?: boolean
   onToggleEdit?: () => void
   tally?: PickTally
 }) {
-  const awayFav = game.spread_favorite === 'away'
-  const homeFav = game.spread_favorite === 'home'
-  const lineSet = game.spread > 0
+  const away = getTeam(game.away_team)
+  const home = getTeam(game.home_team)
   const isFinal = game.result_confirmed === true
-  const awayWon = game.result === 'away_win'
   const homeWon = game.result === 'home_win'
+  const awayWon = game.result === 'away_win'
+  const rowBg = index % 2 === 0 ? '#1f2937' : '#1a2030'
+  const lineLabel = homeSpreadLabel(game.spread, game.spread_favorite)
 
-  const inner = (
-    <>
+  const cells = (
+    <tr
+      style={{ backgroundColor: rowBg }}
+      onClick={!readOnly ? onToggleEdit : undefined}
+      className={!readOnly ? 'cursor-pointer active:opacity-70 transition-opacity' : ''}
+    >
+      {/* Kickoff */}
+      <td className="px-2 py-1.5 font-mono text-xs text-gray-400 whitespace-nowrap">
+        {game.is_tiebreaker
+          ? <span className="text-yellow-500">{formatKickoff(game.kickoff_time)}</span>
+          : formatKickoff(game.kickoff_time)
+        }
+      </td>
+
       {/* Away team */}
-      <div className="flex items-center gap-1.5">
-        <TeamPill name={game.away_team} />
-        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${
-          isFinal ? (awayWon ? 'text-green-400' : 'text-gray-600') : (awayFav && lineSet ? 'text-white' : 'text-gray-500')
-        }`}>
-          {spreadLabel(game.spread, awayFav)}
+      <td className="px-2 py-1 text-center">
+        <span
+          className="inline-block px-1.5 py-0.5 rounded font-mono font-bold text-xs tracking-wide transition-opacity"
+          style={{
+            backgroundColor: away.color,
+            color: away.light ? '#111827' : '#ffffff',
+            opacity: isFinal && !awayWon ? 0.35 : 1,
+          }}
+        >
+          {away.abbr.toLowerCase()}
         </span>
-      </div>
-
-      <span className="text-gray-700 text-xs mx-1">@</span>
+      </td>
 
       {/* Home team */}
-      <div className="flex items-center gap-1.5">
-        <TeamPill name={game.home_team} />
-        <span className={`text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-gray-800 ${
-          isFinal ? (homeWon ? 'text-green-400' : 'text-gray-600') : (homeFav && lineSet ? 'text-white' : 'text-gray-500')
-        }`}>
-          {spreadLabel(game.spread, homeFav)}
+      <td className="px-2 py-1 text-center">
+        <span
+          className="inline-block px-1.5 py-0.5 rounded font-mono font-bold text-xs tracking-wide transition-opacity"
+          style={{
+            backgroundColor: home.color,
+            color: home.light ? '#111827' : '#ffffff',
+            opacity: isFinal && !homeWon ? 0.35 : 1,
+          }}
+        >
+          {home.abbr}
         </span>
-      </div>
+      </td>
 
-      {/* Time / Final */}
-      <div className="flex items-center gap-1.5 ml-auto pl-2 flex-shrink-0">
-        {game.is_tiebreaker && (
-          <span className="text-xs text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">TB</span>
-        )}
+      {/* Line */}
+      <td className="px-2 py-1.5 text-right font-mono text-xs font-semibold text-white whitespace-nowrap">
+        {lineLabel}
+      </td>
+
+      {/* Status */}
+      <td className="px-2 py-1.5 text-right text-xs whitespace-nowrap">
         {isFinal
-          ? <span className="text-xs text-gray-600">Final</span>
-          : <span className="text-xs text-gray-500">{formatTime(game.kickoff_time)}</span>
+          ? <span className="text-gray-600">Final</span>
+          : null
         }
-      </div>
-    </>
+      </td>
+    </tr>
   )
 
-  const canEdit = !readOnly
-
-  return (
-    <div className={game.is_tiebreaker ? 'opacity-60' : ''}>
-      {canEdit ? (
-        <button
-          onClick={onToggleEdit}
-          className="w-full flex items-center justify-between py-2 active:opacity-60 transition-opacity text-left"
-        >
-          {inner}
-        </button>
-      ) : (
-        <div className="w-full flex items-center justify-between py-2">{inner}</div>
-      )}
-      {canEdit && isEditing && <SpreadEditor game={game} onClose={() => onToggleEdit?.()} />}
-      {tally && (tally.home + tally.away) > 0 && (
-        <div className="flex items-center gap-2 pb-2">
-          <span className="text-xs text-gray-600 tabular-nums w-5 text-right">{tally.away}</span>
-          <div className="flex-1 flex h-1 rounded-full overflow-hidden bg-gray-800">
+  const tallyBar = tally && (tally.home + tally.away) > 0 ? (
+    <tr style={{ backgroundColor: rowBg }}>
+      <td colSpan={5} className="px-3 pb-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-600 tabular-nums w-4 text-right">{tally.away}</span>
+          <div className="flex-1 flex h-1 rounded-full overflow-hidden bg-gray-700">
             <div
-              className="bg-blue-600/50 h-full transition-all"
+              className="bg-blue-500/50 h-full transition-all"
               style={{ width: `${(tally.away / (tally.away + tally.home)) * 100}%` }}
             />
           </div>
-          <span className="text-xs text-gray-600 tabular-nums w-5">{tally.home}</span>
+          <span className="text-xs text-gray-600 tabular-nums w-4">{tally.home}</span>
         </div>
-      )}
-    </div>
+      </td>
+    </tr>
+  ) : null
+
+  return (
+    <>
+      {cells}
+      {isEditing && <SpreadEditor game={game} onClose={() => onToggleEdit?.()} />}
+      {tallyBar}
+    </>
   )
 }
 
 // ── Publish block ─────────────────────────────────────────────────────────────
 
-function PublishBlock({ weekId, weekNumber, allLinesSet, unsetCount }: { weekId: string; weekNumber: number; allLinesSet: boolean; unsetCount: number }) {
+function PublishBlock({ weekId, weekNumber, allLinesSet, unsetCount }: {
+  weekId: string
+  weekNumber: number
+  allLinesSet: boolean
+  unsetCount: number
+}) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -306,7 +256,7 @@ function PublishBlock({ weekId, weekNumber, allLinesSet, unsetCount }: { weekId:
         disabled={pending || !allLinesSet}
         className="w-full py-3 rounded-xl bg-green-600 active:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {pending ? 'Opening…' : allLinesSet ? 'Ship the slate — let \'em cook →' : `${unsetCount} line${unsetCount > 1 ? 's' : ''} missing — can\'t publish yet`}
+        {pending ? 'Opening…' : allLinesSet ? "Ship the slate — let 'em cook →" : `${unsetCount} line${unsetCount > 1 ? 's' : ''} missing — can't publish yet`}
       </button>
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
@@ -325,21 +275,11 @@ type Props = {
 }
 
 export default function SlateReview({ weekId, weekNumber, seasonYear, games, readOnly = false, pickTallies }: Props) {
-  const dayMap = new Map<string, Game[]>()
-  for (const game of games) {
-    const label = formatDay(game.kickoff_time)
-    if (!dayMap.has(label)) dayMap.set(label, [])
-    dayMap.get(label)!.push(game)
-  }
-  const dayGroups = Array.from(dayMap.entries())
-
   const unsetCount = games.filter((g) => !g.is_tiebreaker && g.spread === 0).length
+  const allLinesSet = unsetCount === 0
 
-  // Bye teams — only relevant if < 32 teams are playing
   const playingTeams = new Set(games.flatMap((g) => [g.home_team, g.away_team]))
   const byeTeams = ALL_NFL_TEAMS.filter((t) => !playingTeams.has(t))
-
-  const allLinesSet = unsetCount === 0
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -366,64 +306,71 @@ export default function SlateReview({ weekId, weekNumber, seasonYear, games, rea
         )}
       </div>
 
-      {/* Publish form — above the slate so it's the first thing commissioner sees */}
+      {/* Publish form */}
       {!readOnly && (
         <PublishBlock weekId={weekId} weekNumber={weekNumber} allLinesSet={allLinesSet} unsetCount={unsetCount} />
       )}
 
-      {/* Slate card — sync button anchored to top-right corner */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl relative">
+      {/* Slate table */}
+      <div className="rounded-lg overflow-hidden border border-gray-700 relative">
+        {/* Sync button */}
         {!readOnly && seasonYear && (
           <button
             onClick={() => startRefresh(() => fetchAndSaveLines(weekNumber, seasonYear))}
             disabled={refreshing}
             title={allLinesSet ? 'Refresh lines' : 'Fetch lines'}
-            className="absolute top-3 right-4 text-gray-600 active:text-gray-300 disabled:opacity-40 transition-colors text-base leading-none z-10"
+            className="absolute top-1.5 right-2 text-gray-500 active:text-gray-300 disabled:opacity-40 transition-colors text-base leading-none z-10"
           >
             {refreshing ? '…' : '↻'}
           </button>
         )}
 
-        <div className="px-4 divide-y divide-gray-800/60">
-          {dayGroups.map(([dayLabel, dayGames]) => (
-            <div key={dayLabel}>
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest pt-3 pb-1">
-                {dayLabel}
-              </p>
-              {dayGames.map((game) => (
-                <GameRow
-                  key={game.id}
-                  game={game}
-                  readOnly={effectiveReadOnly}
-                  isEditing={editingId === game.id}
-                  onToggleEdit={() => setEditingId(editingId === game.id ? null : game.id)}
-                  tally={pickTallies?.[game.id]}
-                />
-              ))}
-            </div>
-          ))}
-
-          {byeTeams.length > 0 && (
-            <div className="py-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">Bye</p>
-              <div className="flex flex-wrap gap-1.5">
-                {byeTeams.map((name) => {
-                  const team = getTeam(name)
-                  return (
-                    <span
-                      key={name}
-                      className="px-2 py-0.5 rounded-md text-xs font-bold opacity-40"
-                      style={{ backgroundColor: team.color, color: team.light ? '#111' : '#fff' }}
-                    >
-                      {team.abbr}
-                    </span>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr style={{ backgroundColor: '#374151' }}>
+              <th className="px-2 py-1.5 text-left font-semibold text-gray-300 whitespace-nowrap">KICKOFF</th>
+              <th className="px-2 py-1.5 text-center font-semibold text-gray-300">AWAY</th>
+              <th className="px-2 py-1.5 text-center font-semibold text-gray-300">HOME</th>
+              <th className="px-2 py-1.5 text-right font-semibold text-gray-300">LINE</th>
+              <th className="px-2 py-1.5 text-right font-semibold text-gray-300"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {games.map((game, i) => (
+              <GameRow
+                key={game.id}
+                game={game}
+                index={i}
+                readOnly={effectiveReadOnly}
+                isEditing={editingId === game.id}
+                onToggleEdit={() => setEditingId(editingId === game.id ? null : game.id)}
+                tally={pickTallies?.[game.id]}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* Bye teams */}
+      {byeTeams.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">Bye</p>
+          <div className="flex flex-wrap gap-1.5">
+            {byeTeams.map((name) => {
+              const team = getTeam(name)
+              return (
+                <span
+                  key={name}
+                  className="px-2 py-0.5 rounded-md text-xs font-bold opacity-40"
+                  style={{ backgroundColor: team.color, color: team.light ? '#111' : '#fff' }}
+                >
+                  {team.abbr}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -77,7 +77,7 @@ export default async function CommissionerPage() {
   let eligiblePlayers: Array<{ id: string; name: string }> = []
   let threshold = 1
 
-  if (status === 'sunday_complete' || status === 'tiebreaker') {
+  if (status === 'sunday_complete' || status === 'tiebreaker' || status === 'results_posted') {
     const gameIds = (games ?? []).map((g: any) => g.id)
 
     const { data: picks } = await db
@@ -118,8 +118,9 @@ export default async function CommissionerPage() {
   let tiebreakerPicksOpen = false
   let mnfResultConfirmed = false
   let tiebreakerPickCount = 0
+  let tiebreakerWinners: Array<{ id: string; name: string }> = []
 
-  if (status === 'tiebreaker') {
+  if (status === 'tiebreaker' || status === 'results_posted') {
     const { data: tbGame } = await db
       .from('games')
       .select('*')
@@ -149,13 +150,27 @@ export default async function CommissionerPage() {
 
         tiebreakerPickCount = new Set((tbPicks ?? []).map((p: any) => p.user_id)).size
       }
+
+      if (mnfResultConfirmed) {
+        const { data: winPicks } = await db
+          .from('picks')
+          .select('user_id')
+          .eq('game_id', tiebreakerGame.id)
+          .eq('result', 'win')
+        const winnerIds = (winPicks ?? []).map((p: any) => p.user_id)
+        if (winnerIds.length > 0) {
+          const { data: winnerUsers } = await db
+            .from('users')
+            .select('id, name')
+            .in('id', winnerIds)
+          tiebreakerWinners = winnerUsers ?? []
+        }
+      }
     }
   }
 
   return (
     <div className="p-4 space-y-6">
-      <h1 className="text-2xl font-bold text-white">Commissioner</h1>
-
       {/* ── Weekly workflow ───────────────────────────────── */}
       <section className="space-y-3">
 
@@ -272,21 +287,21 @@ export default async function CommissionerPage() {
           </div>
         )}
 
-        {/* STATE: tiebreaker */}
+        {/* STATE: tiebreaker — MNF is still part of the week */}
         {status === 'tiebreaker' && (
           <>
-            {/* Sub-phase 1: no MNF game yet → fetch it */}
-            {!tiebreakerGame && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+            {/* Sub-phase 1: MNF teams known, line not yet fetched (spread=0) */}
+            {tiebreakerGame && tiebreakerGame.spread === 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">MNF Tiebreaker</span>
+                  <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Tiebreaker</span>
                   <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full">
                     Needs MNF line
                   </span>
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-gray-400">
-                    {perfectCount} players are still perfect:
+                    Still perfect ({eligiblePlayers.length}):
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {eligiblePlayers.map((p) => (
@@ -296,33 +311,34 @@ export default async function CommissionerPage() {
                     ))}
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Fetch the Monday Night Football line. You'll review it before opening picks.
-                </p>
-                <FetchMNFLineButton weekId={activeWeek.id} />
-              </div>
-            )}
-
-            {/* Sub-phase 2: MNF game fetched, picks not open yet → review + post tiebreaker announcement */}
-            {tiebreakerGame && !tiebreakerPicksOpen && !mnfResultConfirmed && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">MNF Tiebreaker — Review line</span>
-                  <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full">
-                    Line fetched
-                  </span>
+                <div className="border-t border-gray-800 pt-3 space-y-1.5">
+                  <p className="text-xs text-gray-500">
+                    Fetch the Monday Night Football line to open the tiebreaker.
+                  </p>
+                  <FetchMNFLineButton weekId={activeWeek.id} />
                 </div>
-
-                {/* MNF game preview */}
+                {/* Full week slate — MNF at top (spread TBD), regular games scored */}
                 <SlateReview
                   weekId={activeWeek.id}
                   weekNumber={activeWeek.week_number}
-                  games={[tiebreakerGame] as any}
+                  games={[tiebreakerGame, ...(games ?? [])] as any}
+                  readOnly={true}
                 />
+              </div>
+            )}
 
+            {/* Sub-phase 2: MNF line fetched (spread>0), picks not open → post to open tiebreaker */}
+            {tiebreakerGame && tiebreakerGame.spread > 0 && !tiebreakerPicksOpen && !mnfResultConfirmed && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Tiebreaker</span>
+                  <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full">
+                    MNF line fetched
+                  </span>
+                </div>
                 {/* Eligible players */}
                 <div className="space-y-1">
-                  <p className="text-xs text-gray-400">Eligible to pick ({eligiblePlayers.length}):</p>
+                  <p className="text-xs text-gray-400">Still in it ({eligiblePlayers.length}):</p>
                   <div className="flex flex-wrap gap-1.5">
                     {eligiblePlayers.map((p) => (
                       <span key={p.id} className="text-xs bg-gray-800 text-white px-2 py-0.5 rounded-full">
@@ -331,30 +347,44 @@ export default async function CommissionerPage() {
                     ))}
                   </div>
                 </div>
-
-                <div className="border-t border-gray-800 pt-3 space-y-2">
-                  <p className="text-xs text-gray-500">
-                    Write your tiebreaker post. This goes to the feed and opens MNF picks for eligible players.
-                  </p>
+                {/* Post box at top — opens MNF picks on submit */}
+                <div className="border-b border-gray-800 pb-4">
                   <TiebreakerAnnouncementForm
                     weekId={activeWeek.id}
                     eligibleNames={eligiblePlayers.map((p) => p.name)}
                   />
                 </div>
+                {/* Full week slate — MNF at top with live spread */}
+                <SlateReview
+                  weekId={activeWeek.id}
+                  weekNumber={activeWeek.week_number}
+                  games={[tiebreakerGame, ...(games ?? [])] as any}
+                  readOnly={true}
+                />
               </div>
             )}
 
-            {/* Sub-phase 3: picks open, result not yet fetched → tracker + fetch result */}
+            {/* Sub-phase 3: picks open, waiting for MNF to end */}
             {tiebreakerGame && tiebreakerPicksOpen && !mnfResultConfirmed && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">MNF Tiebreaker — Picks live</span>
+                  <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — MNF live</span>
                   <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
                     Picks open
                   </span>
                 </div>
-
-                {/* Pick submission progress */}
+                {/* Eligible players */}
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-400">Still in it ({eligiblePlayers.length}):</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {eligiblePlayers.map((p) => (
+                      <span key={p.id} className="text-xs bg-gray-800 text-white px-2 py-0.5 rounded-full">
+                        {p.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {/* Pick submission progress — above the slate */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>Tiebreaker picks submitted</span>
@@ -374,29 +404,57 @@ export default async function CommissionerPage() {
                     <p className="text-xs text-green-400">All eligible players have picked.</p>
                   )}
                 </div>
-
-                <div className="border-t border-gray-800 pt-3 space-y-2">
-                  <p className="text-xs text-gray-500">
-                    Run this after MNF ends to pull the final score and score tiebreaker picks automatically.
-                  </p>
-                  <FetchMNFResultButton weekId={activeWeek.id} />
-                </div>
+                {/* Full week slate — MNF at top, still in progress */}
+                <SlateReview
+                  weekId={activeWeek.id}
+                  weekNumber={activeWeek.week_number}
+                  games={[tiebreakerGame, ...(games ?? [])] as any}
+                  readOnly={true}
+                />
               </div>
             )}
 
-            {/* Sub-phase 4: result confirmed → write tiebreaker results announcement */}
+            {/* Sub-phase 4: MNF result confirmed → post results */}
             {tiebreakerGame && mnfResultConfirmed && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">MNF Tiebreaker — Result in</span>
+                  <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — MNF final</span>
                   <span className="text-xs text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-full">
                     Pending announcement
                   </span>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Write your tiebreaker results post. This closes the week officially.
-                </p>
+                {/* Winners */}
+                <div className="space-y-1.5">
+                  {tiebreakerWinners.length === 0 ? (
+                    <p className="text-xs text-gray-500">No winners from the tiebreaker.</p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-gray-400">
+                        {tiebreakerWinners.length === 1 ? 'Winner:' : `Winners (${tiebreakerWinners.length}):`}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tiebreakerWinners.map((p) => (
+                          <Link
+                            key={p.id}
+                            href={`/commissioner/player/${p.id}?week=${activeWeek.week_number}`}
+                            className="text-xs bg-gray-800 text-white px-2 py-0.5 rounded-full active:bg-gray-700"
+                          >
+                            {p.name} ›
+                          </Link>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Text box — closing out the week */}
                 <TiebreakerResultsForm weekId={activeWeek.id} />
+                {/* Full week slate — MNF now shows Final + result */}
+                <SlateReview
+                  weekId={activeWeek.id}
+                  weekNumber={activeWeek.week_number}
+                  games={[tiebreakerGame, ...(games ?? [])] as any}
+                  readOnly={true}
+                />
               </div>
             )}
           </>
@@ -404,18 +462,45 @@ export default async function CommissionerPage() {
 
         {/* STATE: results_posted → done, cron closes on Wednesday */}
         {status === 'results_posted' && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-1.5">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-white">Week {activeWeek.week_number} — Wrapped</span>
               <span className="text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Results live</span>
             </div>
-            <p className="text-xs text-gray-500">Results are posted and standings are updated. Next week kicks off Wednesday.</p>
+
+            {/* Winners — tiebreaker winners take priority if week had one */}
+            <div className="space-y-1.5">
+              {(() => {
+                const winners = tiebreakerWinners.length > 0 ? tiebreakerWinners : eligiblePlayers
+                if (winners.length === 0) return <p className="text-xs text-gray-500">No perfect scores this week.</p>
+                return (
+                  <>
+                    <p className="text-xs text-gray-400">
+                      {winners.length === 1 ? 'Winner:' : `Winners (${winners.length}):`}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {winners.map((p) => (
+                        <Link
+                          key={p.id}
+                          href={`/commissioner/player/${p.id}?week=${activeWeek.week_number}`}
+                          className="text-xs bg-gray-800 text-white px-2 py-0.5 rounded-full active:bg-gray-700"
+                        >
+                          {p.name} ›
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+
+            <p className="text-xs text-gray-600">Next week kicks off Wednesday.</p>
           </div>
         )}
       </section>
 
-      {/* ── Full slate (pending + post-open states; open state shows slate inline above with tallies) ── */}
-      {hasGames && activeWeek && status !== 'open' && (
+      {/* ── Full slate (pending + post-open states; open + tiebreaker show slate inline in their tiles) ── */}
+      {hasGames && activeWeek && status !== 'open' && status !== 'tiebreaker' && (
         <section className="space-y-3">
           {status !== 'pending' && (
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">This week's slate</h2>
@@ -424,7 +509,7 @@ export default async function CommissionerPage() {
             weekId={activeWeek.id}
             weekNumber={activeWeek.week_number}
             seasonYear={status === 'pending' ? activeWeek.season_year : undefined}
-            games={(games ?? []) as any}
+            games={(tiebreakerGame ? [tiebreakerGame, ...(games ?? [])] : (games ?? [])) as any}
             readOnly={status !== 'pending'}
           />
         </section>
@@ -464,13 +549,22 @@ export default async function CommissionerPage() {
       {/* ── League management ─────────────────────────────── */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">League</h2>
-        <Link
-          href="/commissioner/league"
-          className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3.5 active:bg-gray-800 transition-colors"
-        >
-          <span className="text-sm text-white font-medium">Players, invites & settings</span>
-          <span className="text-gray-600">›</span>
-        </Link>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl divide-y divide-gray-800">
+          <Link
+            href="/commissioner/league"
+            className="flex items-center justify-between px-4 py-3.5 active:bg-gray-800 transition-colors"
+          >
+            <span className="text-sm text-white font-medium">Players, invites & settings</span>
+            <span className="text-gray-600">›</span>
+          </Link>
+          <Link
+            href="/commissioner/weeks"
+            className="flex items-center justify-between px-4 py-3.5 active:bg-gray-800 transition-colors"
+          >
+            <span className="text-sm text-white font-medium">Past weeks</span>
+            <span className="text-gray-600">›</span>
+          </Link>
+        </div>
       </section>
     </div>
   )

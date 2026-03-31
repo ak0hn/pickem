@@ -1,8 +1,6 @@
 export default function StandingsPage() {
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-2xl font-bold text-white">Standings</h1>
-
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
         {['This Week', 'Season', 'History'].map((tab, i) => (

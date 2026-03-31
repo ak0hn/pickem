@@ -18,6 +18,8 @@ import {
   devAdvanceToNextWeek,
   devSimulateSundayDone,
   devSimulateTiebreaker,
+  devGrantPerfectScore,
+  devCompleteTiebreaker,
 } from '@/app/actions/commissioner'
 
 // ─── Fetch Schedule ───────────────────────────────────────────────────────────
@@ -409,6 +411,11 @@ export function DevResetButton({ weekId, weekNumber, seasonYear }: { weekId: str
         label="→ Next Wednesday — close week, next week loads up"
         action={() => devAdvanceToNextWeek(weekId, weekNumber, seasonYear)}
       />
+      <p className="text-xs text-yellow-600 font-semibold pt-1">Pick manipulation</p>
+      <DevButton
+        label="⭐ Force my picks → all wins (simulate perfect score)"
+        action={() => devGrantPerfectScore(weekId)}
+      />
       <p className="text-xs text-yellow-600 font-semibold pt-1">Quick jumps (reset + advance)</p>
       <DevButton
         label="⤳ Jump to: all scored, pending results post"
@@ -417,6 +424,10 @@ export function DevResetButton({ weekId, weekNumber, seasonYear }: { weekId: str
       <DevButton
         label="⤳ Jump to: tiebreaker flow"
         action={() => devSimulateTiebreaker(weekId, seasonYear)}
+      />
+      <DevButton
+        label="⤳ Complete tiebreaker → results posted (scores MNF, closes week)"
+        action={() => devCompleteTiebreaker(weekId)}
       />
     </div>
   )
