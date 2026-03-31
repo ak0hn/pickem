@@ -440,8 +440,12 @@ export async function postTiebreakerResults(weekId: string, content: string) {
 
 // ─── General announcement ─────────────────────────────────────────────────────
 
-export async function postAnnouncement(weekId: string | null, content: string, type: string = 'general') {
+const VALID_ANNOUNCEMENT_TYPES = ['general', 'slate', 'results', 'tiebreaker', 'pre_snf_update'] as const
+type AnnouncementType = typeof VALID_ANNOUNCEMENT_TYPES[number]
+
+export async function postAnnouncement(weekId: string | null, content: string, type: AnnouncementType = 'general') {
   const user = await requireCommissioner()
+  if (!VALID_ANNOUNCEMENT_TYPES.includes(type)) throw new Error('Invalid announcement type')
   const db = createServiceClient()
   await db.from('announcements').insert({ week_id: weekId, author_id: user.id, type, content })
   revalidatePath('/home')

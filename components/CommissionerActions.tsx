@@ -443,7 +443,7 @@ export function AnnouncementForm({
 }: {
   weekId: string | null
   placeholder: string
-  type?: string
+  type?: 'general' | 'slate' | 'results' | 'tiebreaker' | 'pre_snf_update'
   label?: string
 }) {
   const [pending, startTransition] = useTransition()

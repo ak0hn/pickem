@@ -13,8 +13,7 @@ function formatKickoff(iso: string) {
 }
 
 function formatSpread(spread: number, favorite: 'home' | 'away') {
-  const n = Number.isInteger(spread) ? `${spread}` : `${spread}`
-  return favorite === 'home' ? `-${n}` : `+${n}`
+  return favorite === 'home' ? `-${spread}` : `+${spread}`
 }
 
 export default function SlateTable({
@@ -30,14 +29,14 @@ export default function SlateTable({
 
   function handleToggle(e: React.MouseEvent) {
     e.stopPropagation()
-    if (!expanded && games.length === 0) {
+    if (!expanded) {
       startTransition(async () => {
         const data = await getWeekGames(weekId, isTiebreaker)
         setGames(data)
         setExpanded(true)
       })
     } else {
-      setExpanded((v) => !v)
+      setExpanded(false)
     }
   }
 
