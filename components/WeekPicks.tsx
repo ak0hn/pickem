@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect } from 'react'
 import Image from 'next/image'
+import { getLogoUrl } from '@/lib/nfl-logos'
 import type { Week, Game, Pick } from '@/app/(app)/week/page'
 
 type UserPicksMap = Record<string, Pick>
@@ -16,32 +17,6 @@ type Props = {
   canPick: boolean
 }
 
-// ── Team logos ────────────────────────────────────────────────────────────────
-
-const NFL_LOGOS: Record<string, string> = {
-  'Arizona Cardinals': 'ari',   'Atlanta Falcons': 'atl',
-  'Baltimore Ravens': 'bal',    'Buffalo Bills': 'buf',
-  'Carolina Panthers': 'car',   'Chicago Bears': 'chi',
-  'Cincinnati Bengals': 'cin',  'Cleveland Browns': 'cle',
-  'Dallas Cowboys': 'dal',      'Denver Broncos': 'den',
-  'Detroit Lions': 'det',       'Green Bay Packers': 'gb',
-  'Houston Texans': 'hou',      'Indianapolis Colts': 'ind',
-  'Jacksonville Jaguars': 'jax','Kansas City Chiefs': 'kc',
-  'Las Vegas Raiders': 'lv',    'Los Angeles Chargers': 'lac',
-  'Los Angeles Rams': 'lar',    'Miami Dolphins': 'mia',
-  'Minnesota Vikings': 'min',   'New England Patriots': 'ne',
-  'New Orleans Saints': 'no',   'New York Giants': 'nyg',
-  'New York Jets': 'nyj',       'Philadelphia Eagles': 'phi',
-  'Pittsburgh Steelers': 'pit', 'San Francisco 49ers': 'sf',
-  'Seattle Seahawks': 'sea',    'Tampa Bay Buccaneers': 'tb',
-  'Tennessee Titans': 'ten',    'Washington Commanders': 'wsh',
-}
-
-function getLogoUrl(teamName: string): string | null {
-  const abbr = NFL_LOGOS[teamName]
-  if (!abbr) return null
-  return `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr}.png`
-}
 
 function formatTime(kickoffTime: string): string {
   return new Date(kickoffTime).toLocaleTimeString('en-US', {
@@ -102,34 +77,33 @@ function groupGames(games: Game[]): DayGroup[] {
   })
 }
 
-// ── GameCard (picking phase) ──────────────────────────────────────────────────
+// ── GameCard ──────────────────────────────────────────────────────────────────
 
 function TeamSide({
-  team, side, isFav, spread, picked, canPick, onPick, gameId,
+  team, side, spread, picked, isLocked, canPick, onPick, gameId,
 }: {
   team: string
   side: 'home' | 'away'
-  isFav: boolean
   spread: string | null
   picked: boolean
+  isLocked: boolean
   canPick: boolean
   onPick: (gameId: string, side: 'home' | 'away') => void
   gameId: string
 }) {
   const logoUrl = getLogoUrl(team)
-  let bg = ''
-  if (picked) bg = 'bg-blue-900/50'
+  const bg = picked ? 'bg-blue-900/50' : ''
 
   return (
     <button
       onClick={() => canPick && onPick(gameId, side)}
       disabled={!canPick}
-      className={`flex-1 flex flex-col items-center gap-1.5 py-4 px-2 transition-colors ${bg} ${!canPick ? 'cursor-default' : 'active:opacity-70'}`}
+      className={`flex-1 flex flex-col items-center gap-1 py-2.5 px-2 transition-colors ${bg} ${!canPick ? 'cursor-default' : 'active:opacity-70'}`}
     >
       {logoUrl ? (
-        <Image src={logoUrl} alt={team} width={44} height={44} unoptimized className="object-contain" />
+        <Image src={logoUrl} alt={team} width={38} height={38} unoptimized className="object-contain" />
       ) : (
-        <div className="w-11 h-11 rounded-full bg-gray-800 flex items-center justify-center text-xs text-gray-500">
+        <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-xs text-gray-500">
           {team.slice(0, 3).toUpperCase()}
         </div>
       )}
@@ -145,80 +119,39 @@ function TeamSide({
 }
 
 function GameCard({
-  game, localPick, onPick, canPick,
+  game, localPick, isLocked, onPick, canPick,
 }: {
   game: Game
   localPick: 'home' | 'away' | undefined
+  isLocked: boolean
   onPick: (gameId: string, side: 'home' | 'away') => void
   canPick: boolean
 }) {
-  const awaySpread = spreadLabel(game, 'away')
-  const homeSpread = spreadLabel(game, 'home')
-
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      <div className="px-4 pt-2.5 pb-1 text-xs text-gray-600 font-medium">
+      <div className="px-4 pt-2.5 pb-1 text-xs text-gray-600 font-medium flex items-center gap-1.5">
         {formatTime(game.kickoff_time)}
+        {isLocked && <span className="text-gray-700">· 🔒</span>}
       </div>
       <div className="flex divide-x divide-gray-800">
         <TeamSide
           team={game.away_team} side="away"
-          isFav={game.spread_favorite === 'away'}
-          spread={awaySpread}
+          spread={spreadLabel(game, 'away')}
           picked={localPick === 'away'}
+          isLocked={isLocked}
           canPick={canPick}
           onPick={onPick}
           gameId={game.id}
         />
         <TeamSide
           team={game.home_team} side="home"
-          isFav={game.spread_favorite === 'home'}
-          spread={homeSpread}
+          spread={spreadLabel(game, 'home')}
           picked={localPick === 'home'}
+          isLocked={isLocked}
           canPick={canPick}
           onPick={onPick}
           gameId={game.id}
         />
-      </div>
-    </div>
-  )
-}
-
-// ── SubmittedGameCard (post-submit) ───────────────────────────────────────────
-
-function SubmittedGameCard({ game, pick }: { game: Game; pick: Pick }) {
-  const pickedSide = pick.picked_team
-  const pickedTeam = pickedSide === 'home' ? game.home_team : game.away_team
-  const otherTeam = pickedSide === 'home' ? game.away_team : game.home_team
-  const pickedLogo = getLogoUrl(pickedTeam)
-  const sp = spreadLabel(game, pickedSide)
-  const hasResult = pick.result && pick.result !== 'pending'
-
-  let bg = 'bg-gray-900'
-  let border = 'border-gray-800'
-  if (hasResult) {
-    if (pick.result === 'win') { bg = 'bg-green-900/20'; border = 'border-green-800/40' }
-    else if (pick.result === 'loss') { bg = 'bg-red-900/20'; border = 'border-red-800/40' }
-    else if (pick.result === 'push') { bg = 'bg-gray-800/40'; border = 'border-gray-700' }
-  }
-
-  return (
-    <div className={`${bg} border ${border} rounded-xl p-4 flex items-center gap-3`}>
-      {pickedLogo ? (
-        <Image src={pickedLogo} alt={pickedTeam} width={40} height={40} unoptimized className="object-contain flex-shrink-0" />
-      ) : (
-        <div className="w-10 h-10 rounded-full bg-gray-800 flex-shrink-0" />
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-white">{pickedTeam}</span>
-          {sp && <span className="text-xs text-gray-400">{sp}</span>}
-          {hasResult && <span>{resultIcon(pick.result)}</span>}
-        </div>
-        <div className="text-xs text-gray-500 mt-0.5">
-          vs {otherTeam} · {formatTime(game.kickoff_time)}
-        </div>
-        {!hasResult && <div className="text-xs text-gray-700 mt-0.5">Pending result</div>}
       </div>
     </div>
   )
@@ -229,12 +162,15 @@ function SubmittedGameCard({ game, pick }: { game: Game; pick: Pick }) {
 export default function WeekPicks({ week, games, userPicks, userId, pickCount, canPick }: Props) {
   const [, startTransition] = useTransition()
   const [submitting, setSubmitting] = useState(false)
+  const [slipOpen, setSlipOpen] = useState(false)
 
-  const initialSubmitted = Object.keys(userPicks).length > 0
-  const [submitted, setSubmitted] = useState(initialSubmitted)
   const [savedPicks, setSavedPicks] = useState<UserPicksMap>(userPicks)
 
-  // Local picks buffer — starts from existing server picks if any
+  // submittedGames tracks which game IDs are locked on the server
+  const [submittedGames, setSubmittedGames] = useState<Set<string>>(
+    () => new Set(Object.keys(userPicks))
+  )
+
   const [localPicks, setLocalPicks] = useState<LocalPicks>(() => {
     const lp: LocalPicks = {}
     for (const [gid, pick] of Object.entries(userPicks)) {
@@ -243,7 +179,6 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
     return lp
   })
 
-  // Sync server results into local savedPicks when game results come in
   useEffect(() => {
     setSavedPicks((prev) => {
       const merged = { ...prev }
@@ -259,12 +194,37 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
   }, [userPicks])
 
   const dayGroups = groupGames(games)
-  const madeCount = Object.keys(localPicks).length
-  const readyToSubmit = madeCount >= pickCount
   const noGamesYet = games.length === 0
 
+  const lockedCount = submittedGames.size
+  const allLocked = lockedCount === pickCount
+
+  // draft = selected but not yet submitted
+  const draftGameIds = games
+    .filter(g => localPicks[g.id] !== undefined && !submittedGames.has(g.id))
+    .map(g => g.id)
+  const draftCount = draftGameIds.length
+
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
+  const [collapsedSlots, setCollapsedSlots] = useState<Set<string>>(new Set())
+
+  function toggleDay(key: string) {
+    setCollapsedDays(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+  function toggleSlot(key: string) {
+    setCollapsedSlots(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
   function handlePick(gameId: string, side: 'home' | 'away') {
-    if (submitted || !canPick) return
+    if (submittedGames.has(gameId) || !canPick) return
     setLocalPicks((prev) => {
       const next = { ...prev }
       if (next[gameId] === side) delete next[gameId]
@@ -273,43 +233,59 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
     })
   }
 
-  async function handleSubmit() {
-    if (!userId || submitting) return
-    setSubmitting(true)
+  function handleRemovePick(gameId: string) {
+    if (submittedGames.has(gameId)) return
+    setLocalPicks(prev => {
+      const next = { ...prev }
+      delete next[gameId]
+      return next
+    })
+  }
 
-    const entries = Object.entries(localPicks)
+  async function handleSubmit() {
+    if (!userId || submitting || draftGameIds.length === 0) return
+    setSubmitting(true)
     try {
-      const results = await Promise.all(
-        entries.map(([gameId, pickedTeam]) =>
+      const results = await Promise.allSettled(
+        draftGameIds.map((gameId) =>
           fetch('/api/picks/upsert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gameId, pickedTeam }),
+            body: JSON.stringify({ gameId, pickedTeam: localPicks[gameId] }),
           }).then((r) => r.json())
         )
       )
-
-      const newSaved: UserPicksMap = {}
-      for (let i = 0; i < entries.length; i++) {
-        const [gameId] = entries[i]
-        const savedPick = results[i]?.pick
-        if (savedPick) newSaved[gameId] = savedPick
-      }
-
       startTransition(() => {
-        setSavedPicks(newSaved)
-        setSubmitted(true)
+        setSavedPicks(prev => {
+          const next = { ...prev }
+          results.forEach((result, i) => {
+            if (result.status === 'fulfilled' && result.value?.pick) {
+              next[draftGameIds[i]] = result.value.pick
+            }
+          })
+          return next
+        })
+        setSubmittedGames(prev => {
+          const next = new Set(prev)
+          results.forEach((result, i) => {
+            if (result.status === 'fulfilled' && result.value?.pick) {
+              next.add(draftGameIds[i])
+            }
+          })
+          return next
+        })
       })
     } finally {
       setSubmitting(false)
     }
   }
 
-  // Determine pre-open state: games visible but no picks yet
   const isPreview = !canPick && week.status === 'pending'
   const isPostResults = !canPick && (week.status === 'sunday_complete' || week.status === 'results_posted' || week.status === 'tiebreaker')
 
-  // Header right content
+  const neededCount = pickCount - lockedCount - draftCount
+
+  // Header badge
   let headerRight: React.ReactNode
   if (!canPick) {
     if (isPreview) {
@@ -319,25 +295,44 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
     } else {
       headerRight = <span className="text-xs text-yellow-600 bg-yellow-600/10 px-2.5 py-1 rounded-full">Picks locked</span>
     }
-  } else if (submitted) {
-    headerRight = <span className="text-xs text-green-400 font-semibold">Submitted ✓</span>
+  } else if (allLocked) {
+    headerRight = (
+      <span className="text-xs text-green-400 bg-green-400/10 font-semibold px-2.5 py-1 rounded-full">
+        {pickCount} / {pickCount} locked ✓
+      </span>
+    )
   } else {
     headerRight = (
-      <span className="bg-gray-800 text-gray-300 text-xs font-medium px-3 py-1 rounded-full">
-        {madeCount} / {pickCount} picks
+      <span className="bg-gray-800 text-xs font-medium px-3 py-1 rounded-full">
+        <span className="text-green-500">{lockedCount} locked</span>
+        {draftCount > 0 && <span className="text-blue-400"> · {draftCount} draft</span>}
+        {neededCount > 0 && <span className="text-gray-500"> · {neededCount} needed</span>}
       </span>
     )
   }
 
+  // Slip bar entries: all games in kickoff order that have a local pick
+  const slipEntries = games
+    .filter(g => localPicks[g.id] !== undefined)
+    .map(g => ({ game: g, side: localPicks[g.id] }))
+
+  // Slip bar label
+  const barLabel = allLocked
+    ? 'All picks locked ✓'
+    : [
+        lockedCount > 0 && `${lockedCount} locked`,
+        draftCount > 0 && `${draftCount} draft`,
+        neededCount > 0 && `${neededCount} needed`,
+      ].filter(Boolean).join(' · ') || 'Select your picks'
+
   return (
     <div>
-      {/* Pick status bar — sticks below the layout week bar */}
-      <div className="sticky top-[41px] z-10 bg-gray-950 border-b border-gray-800 px-4 py-2 flex items-center justify-end">
+      {/* Sticky sub-header */}
+      <div className="sticky top-[82px] z-10 bg-gray-950 border-b border-gray-800 px-4 py-2 flex items-center justify-end">
         {headerRight}
       </div>
 
-      <div className="p-4 space-y-4 pb-32">
-        {/* Preview banner */}
+      <div className="p-4 space-y-4 pb-36">
         {isPreview && (
           <p className="text-xs text-gray-600 text-center py-2">
             Week {week.week_number} matchups — lines drop when the commissioner opens picks.
@@ -348,71 +343,228 @@ export default function WeekPicks({ week, games, userPicks, userId, pickCount, c
             Week {week.week_number} is wrapped. Check the feed for results.
           </p>
         )}
-
-        {/* No games yet */}
         {noGamesYet && (
           <p className="text-xs text-gray-600 text-center py-8">
             Week {week.week_number} slate coming soon.
           </p>
         )}
 
-        {/* Post-submit: only show picked games */}
-        {!noGamesYet && submitted && canPick ? (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold">Your picks</p>
-            {Object.entries(savedPicks).map(([gameId, pick]) => {
-              const game = games.find((g) => g.id === gameId)
-              if (!game) return null
-              return <SubmittedGameCard key={gameId} game={game} pick={pick} />
-            })}
-          </div>
-        ) : !noGamesYet ? (
-          /* All games (picking or preview) */
-          dayGroups.map((dayGroup) => (
+        {!noGamesYet && dayGroups.map((dayGroup) => {
+          const dayCollapsed = collapsedDays.has(dayGroup.dayKey)
+          return (
             <div key={dayGroup.dayKey}>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest pb-2">
-                {dayGroup.dayLabel}
-              </p>
-              <div className="space-y-3">
-                {dayGroup.timeGroups.map((timeGroup) => (
-                  <div key={timeGroup.label} className="space-y-3">
-                    {dayGroup.multipleSlots && (
-                      <p className="text-xs text-gray-600 pl-1">
-                        {timeGroup.label} · {timeGroup.games.length} game{timeGroup.games.length !== 1 ? 's' : ''}
-                      </p>
-                    )}
-                    {timeGroup.games.map((game) => (
-                      <GameCard
-                        key={game.id}
-                        game={game}
-                        localPick={localPicks[game.id]}
-                        onPick={handlePick}
-                        canPick={canPick && !submitted}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => toggleDay(dayGroup.dayKey)}
+                className="w-full flex items-center justify-between pb-2 active:opacity-70"
+              >
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                  {dayGroup.dayLabel}
+                </p>
+                <span className="text-gray-600 text-xs">{dayCollapsed ? '▸' : '▾'}</span>
+              </button>
+              {!dayCollapsed && (
+                <div className="space-y-3">
+                  {dayGroup.timeGroups.map((timeGroup) => {
+                    const slotKey = `${dayGroup.dayKey}-${timeGroup.label}`
+                    const slotCollapsed = collapsedSlots.has(slotKey)
+                    return (
+                      <div key={timeGroup.label} className="space-y-2">
+                        {dayGroup.multipleSlots && (
+                          <button
+                            onClick={() => toggleSlot(slotKey)}
+                            className="w-full flex items-center justify-between pl-1 active:opacity-70"
+                          >
+                            <p className="text-xs text-gray-600">
+                              {timeGroup.label} · {timeGroup.games.length} game{timeGroup.games.length !== 1 ? 's' : ''}
+                            </p>
+                            <span className="text-gray-700 text-xs">{slotCollapsed ? '▸' : '▾'}</span>
+                          </button>
+                        )}
+                        {!slotCollapsed && timeGroup.games.map((game) => (
+                          <GameCard
+                            key={game.id}
+                            game={game}
+                            localPick={localPicks[game.id]}
+                            isLocked={submittedGames.has(game.id)}
+                            onPick={handlePick}
+                            canPick={canPick && !submittedGames.has(game.id)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          ))
-        ) : null}
+          )
+        })}
       </div>
 
-      {/* Sticky submit bar */}
-      {canPick && !submitted && (
-        <div className="fixed bottom-20 left-0 right-0 max-w-lg mx-auto px-4 pb-2">
-          <button
-            onClick={handleSubmit}
-            disabled={!readyToSubmit || submitting}
-            className="w-full py-3.5 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-all shadow-xl"
-          >
-            {submitting
-              ? 'Submitting…'
-              : readyToSubmit
-              ? `Lock in ${pickCount} picks →`
-              : `Select ${pickCount - madeCount} more pick${pickCount - madeCount !== 1 ? 's' : ''}`}
-          </button>
-        </div>
+      {/* ── Bet slip ── */}
+      {canPick && (
+        <>
+          {/* Backdrop */}
+          {slipOpen && (
+            <div
+              className="fixed inset-0 z-30 bg-black/60"
+              onClick={() => setSlipOpen(false)}
+            />
+          )}
+
+          {/* Bottom sheet */}
+          {slipOpen && (
+            <div className="fixed bottom-16 left-0 right-0 max-w-lg mx-auto z-40 bg-gray-950 border border-gray-800 rounded-t-2xl">
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-10 h-1 bg-gray-700 rounded-full" />
+              </div>
+
+              <div className="flex items-center justify-between px-4 pb-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Pick slip</p>
+                {draftCount > 0 && (
+                  <span className="text-xs text-blue-400 font-medium">{draftCount} not locked yet</span>
+                )}
+                {allLocked && (
+                  <span className="text-xs text-green-400 font-semibold">All locked ✓</span>
+                )}
+              </div>
+
+              {/* Pick rows — in kickoff order */}
+              <div className="px-4 space-y-2 max-h-[50vh] overflow-y-auto">
+                {Array.from({ length: pickCount }, (_, i) => {
+                  const entry = slipEntries[i]
+                  if (!entry) {
+                    return (
+                      <div key={i} className="h-14 rounded-xl bg-gray-900 border border-dashed border-gray-800 flex items-center px-4">
+                        <span className="text-xs text-gray-700">Pick {i + 1} — select a team above</span>
+                      </div>
+                    )
+                  }
+                  const { game, side } = entry
+                  const isLocked = submittedGames.has(game.id)
+                  const team = side === 'home' ? game.home_team : game.away_team
+                  const opponent = side === 'home' ? game.away_team : game.home_team
+                  const logo = getLogoUrl(team)
+                  const sp = spreadLabel(game, side)
+                  const savedPick = savedPicks[game.id]
+                  const hasResult = savedPick?.result && savedPick.result !== 'pending'
+
+                  return (
+                    <div
+                      key={game.id}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 border bg-gray-900 border-gray-800"
+                    >
+                      {logo ? (
+                        <Image src={logo} alt={team} width={32} height={32} unoptimized className="object-contain flex-shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gray-800 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold text-white truncate">{team}</span>
+                          {sp && <span className="text-xs text-gray-400 flex-shrink-0">{sp}</span>}
+                          {hasResult && <span className="flex-shrink-0">{resultIcon(savedPick.result)}</span>}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate">vs {opponent} · {formatTime(game.kickoff_time)}</div>
+                      </div>
+                      {/* Lock status / remove */}
+                      {isLocked ? (
+                        <span className="text-base flex-shrink-0">🔒</span>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs text-gray-500 font-medium">Draft</span>
+                          <button
+                            onClick={() => handleRemovePick(game.id)}
+                            className="text-gray-600 active:text-red-400 text-base leading-none px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Submit */}
+              <div className="px-4 py-4">
+                {allLocked ? (
+                  <div className="text-center py-1">
+                    <span className="text-sm text-green-400 font-semibold">All {pickCount} picks locked in ✓</span>
+                  </div>
+                ) : draftCount > 0 ? (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="w-full py-3.5 rounded-xl bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 transition-all"
+                  >
+                    {submitting ? 'Locking in…' : `Lock in ${draftCount} pick${draftCount !== 1 ? 's' : ''} →`}
+                  </button>
+                ) : (
+                  <p className="text-center text-xs text-gray-600 py-1">Select picks above to lock them in</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Slip bar */}
+          {!slipOpen && (
+            <div className="fixed bottom-16 left-0 right-0 max-w-lg mx-auto z-20 flex border-t border-gray-800 bg-gray-950">
+              {/* Left zone: logos + label — opens slip */}
+              <button
+                onClick={() => setSlipOpen(true)}
+                className="flex-1 flex items-center gap-3 px-4 py-3 min-w-0"
+              >
+                <div className="flex gap-1.5 flex-shrink-0">
+                  {Array.from({ length: pickCount }, (_, i) => {
+                    const entry = slipEntries[i]
+                    const team = entry ? (entry.side === 'home' ? entry.game.home_team : entry.game.away_team) : null
+                    const logo = team ? getLogoUrl(team) : null
+                    const sp = entry ? spreadLabel(entry.game, entry.side) : null
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-0.5">
+                        {logo ? (
+                          <Image
+                            src={logo} alt={team!} width={28} height={28} unoptimized
+                            className="rounded-full object-contain bg-white flex-shrink-0 border border-gray-600"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-gray-800 border border-gray-700 flex-shrink-0" />
+                        )}
+                        <span className="text-[9px] leading-none text-gray-500 font-medium">
+                          {sp ?? ''}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <span className={`text-sm font-medium truncate ml-1 ${
+                  allLocked ? 'text-green-400' : draftCount > 0 ? 'text-blue-400' : 'text-gray-500'
+                }`}>
+                  {barLabel}
+                </span>
+              </button>
+
+              {/* Right zone: lock button (when drafts exist) or chevron */}
+              {draftCount > 0 ? (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="px-4 bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold disabled:opacity-40 flex-shrink-0"
+                >
+                  {submitting ? '…' : `Lock ${draftCount} →`}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setSlipOpen(true)}
+                  className="px-4 text-gray-500 text-xs flex-shrink-0"
+                >
+                  ▲
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

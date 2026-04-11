@@ -87,7 +87,10 @@ The app's value is the commissioner-controlled workflow for a specific group —
 ## Key UX Decisions (from build sessions)
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Pick UX | Submit-then-lock | Players select N games, submit once, then view only their picks. No eternal editable draft. Edit flow is a future addition (submit → edit, not open-ended). |
+| Pick UX | Select → Submit → Lock (game-by-game kickoff) | Two distinct states: draft (selected, not committed) and submitted (locked). A pick only counts if explicitly submitted before that game's kickoff. Draft selections that expire at kickoff are unplayed — no auto-lock. Supports both batch submitters (submit all at once) and progressive submitters (submit Thursday pick, come back for Sunday). |
+| Pick editing | No player-side editing post-submit | Edit requests handled case-by-case via commissioner override tool or direct DB edit. Too rare to warrant a self-serve flow in V1. |
+| Submitted pick display | Full matchup + spread context | Submitted picks always show both teams + spread (e.g. "Chiefs -3.5 vs. Bills"), not just the picked team. |
+| Pick count summary | Always-visible "X of 6 submitted" | Players always know how many picks they've locked in. |
 | Spread display | Chip outside team pill | Team pill = brand identity (color). Spread chip = data (dark, subtle). Separate concerns. |
 | MNF in slate | Never in regular slate | MNF only appears as a tiebreaker flow, commissioner-controlled. Separate creation UI. |
 | Auto-fetch | Configurable hours before TNF | Commissioner always publishes manually (with announcement). Automation only pulls lines. |
@@ -105,8 +108,10 @@ The app's value is the commissioner-controlled workflow for a specific group —
 5. ✅ **Phase 1 started** — Scaffold, DB schema, RLS, auth complete
 6. ✅ **`/week` picks screen built** — two-half tap cards, submit-then-lock UX, post-submit view, team logos, day/time grouping, result cards
 7. ✅ **Commissioner page built** — full lifecycle (fetch lines → review slate → publish → submission tracker → post results → close week), league settings, player invites, dev tools
-8. **Next session: Finish commissioner** — MNF tiebreaker flow, results entry + scoring, pre-SNF update polish
-9. **Next session: Mobile UI review** — test exact mobile scale (not browser sim). Consider Expo/React Native wrapper or true device testing to validate layout.
+8. **Next session: Picks page (`/week`)** — rebuild around select→submit→lock model. Alex wireframing in FigJam first; share via Figma MCP when ready.
+9. **Then: Standings page (`/standings`)** — not built yet, placeholder exists. Wireframe first.
+10. **Then: Profile page (`/profile`)** — review and refine.
+11. **Then: Mobile UI review** — test exact mobile scale (not browser sim).
 10. **Then: Results + standings** — result polling, pick scoring, standings screen with tabs (This Week / Season / History)
 11. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings (built alongside features going forward)
 12. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
