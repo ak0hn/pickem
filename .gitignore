@@ -1,7 +1,5 @@
 # dependencies
 node_modules/
-.pnp
-.pnp.js
 
 # env files
 .env
@@ -15,9 +13,21 @@ out/
 
 # build
 dist/
-build/
+dist-ssr/
+.output/
+.vinxi/
+.tanstack/
+.nitro/
+
+# generated
+next-env.d.ts
+*.tsbuildinfo
 
 # misc
 .DS_Store
-*.tsbuildinfo
-next-env.d.ts
+*.log
+.wrangler/
+.dev.vars
+.idea
+.vscode/*
+!.vscode/extensions.json
