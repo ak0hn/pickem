@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { Shell } from '@/components/app/Shell'
 import { TeamBadge } from '@/components/app/TeamBadge'
 import { Button } from '@/components/ui/button'
-import { useLeague, TEAMS, GMS, scoreEntry } from '@/lib/league/store'
+import { useLeague, TEAMS, scoreEntry } from '@/lib/league/store'
 import { cn } from '@/lib/utils'
 import { Trophy, Lock } from 'lucide-react'
 import type { GMEntry } from '@/lib/league/types'
@@ -15,7 +15,7 @@ const SLOT_LABEL: Record<string, string> = {
 }
 
 export default function StandingsPage() {
-  const { entries, games, sim } = useLeague()
+  const { entries, games, sim, gms: GMS } = useLeague()
   const [tab, setTab] = useState<'overall' | 'week'>('overall')
   const weeksAvailable = Array.from({ length: sim.currentWeek }, (_, i) => i + 1)
   const [viewWeek, setViewWeek] = useState(sim.currentWeek)
@@ -109,7 +109,7 @@ export default function StandingsPage() {
 function WeekView({ weeksAvailable, viewWeek, setViewWeek }: {
   weeksAvailable: number[]; viewWeek: number; setViewWeek: (w: number) => void
 }) {
-  const { entries, games, sim, myEntry } = useLeague()
+  const { entries, games, sim, myEntry, gms: GMS } = useLeague()
   const weekEntries = entries.filter((e) => e.week === viewWeek)
   const me = myEntry(viewWeek)
   const isCurrent = viewWeek === sim.currentWeek

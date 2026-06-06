@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState, type FormEvent } from 'react'
 import { Shell } from '@/components/app/Shell'
-import { useLeague, fmtDateTime, GMS, YOU_ID } from '@/lib/league/store'
+import { useLeague, fmtDateTime } from '@/lib/league/store'
 import { Megaphone, Trophy, ListChecks, Sparkles, Bell, Settings2, AlertCircle, Heart, MessageCircle, Send } from 'lucide-react'
 import type { FeedItem, FeedItemKind } from '@/lib/league/types'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,7 @@ const KIND_LABEL: Record<FeedItemKind, string> = {
 }
 
 export default function FeedPage() {
-  const { feed, sim, myEntry, getSlateStatus } = useLeague()
+  const { feed, sim, myEntry, getSlateStatus, youId, gms } = useLeague()
   const sorted = [...feed].sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
   const myW = myEntry(sim.currentWeek)
   const status = getSlateStatus(sim.currentWeek)
@@ -93,7 +93,8 @@ function FeedCard({ item }: { item: FeedItem }) {
   const Icon = ICONS[item.kind]
   const likes = item.likes ?? []
   const comments = item.comments ?? []
-  const youLiked = likes.includes(YOU_ID)
+  const { youId, gms } = useLeague()
+  const youLiked = likes.includes(youId)
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -152,7 +153,7 @@ function FeedCard({ item }: { item: FeedItem }) {
       {(showComments || comments.length > 0) && (
         <div className="mt-2 space-y-2">
           {comments.map((c) => {
-            const gm = GMS.find((g) => g.id === c.gmId)
+            const gm = gms.find((g) => g.id === c.gmId)
             return (
               <div key={c.id} className="flex gap-2 text-sm">
                 <div

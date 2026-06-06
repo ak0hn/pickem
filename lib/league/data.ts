@@ -1,5 +1,24 @@
 import type { Team, Game, GM, FeedItem, GMEntry } from "./types";
 
+// Maps Odds API full team names → abbreviations used in TEAMS
+export const NFL_FULL_TO_ABBR: Record<string, string> = {
+  'Arizona Cardinals': 'ARI', 'Atlanta Falcons': 'ATL', 'Baltimore Ravens': 'BAL',
+  'Buffalo Bills': 'BUF', 'Carolina Panthers': 'CAR', 'Chicago Bears': 'CHI',
+  'Cincinnati Bengals': 'CIN', 'Cleveland Browns': 'CLE', 'Dallas Cowboys': 'DAL',
+  'Denver Broncos': 'DEN', 'Detroit Lions': 'DET', 'Green Bay Packers': 'GB',
+  'Houston Texans': 'HOU', 'Indianapolis Colts': 'IND', 'Jacksonville Jaguars': 'JAX',
+  'Kansas City Chiefs': 'KC', 'Las Vegas Raiders': 'LV', 'Los Angeles Chargers': 'LAC',
+  'Los Angeles Rams': 'LAR', 'Miami Dolphins': 'MIA', 'Minnesota Vikings': 'MIN',
+  'New England Patriots': 'NE', 'New Orleans Saints': 'NO', 'New York Giants': 'NYG',
+  'New York Jets': 'NYJ', 'Philadelphia Eagles': 'PHI', 'Pittsburgh Steelers': 'PIT',
+  'San Francisco 49ers': 'SF', 'Seattle Seahawks': 'SEA', 'Tampa Bay Buccaneers': 'TB',
+  'Tennessee Titans': 'TEN', 'Washington Commanders': 'WAS',
+}
+
+export function normalizeTeam(name: string): string {
+  return NFL_FULL_TO_ABBR[name] ?? name
+}
+
 export const TEAMS: Record<string, Team> = {
   ARI: { id: "ARI", abbr: "ARI", city: "Arizona",       name: "Cardinals",  color: "#97233F" },
   ATL: { id: "ATL", abbr: "ATL", city: "Atlanta",       name: "Falcons",    color: "#A71930" },

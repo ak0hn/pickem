@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useLeague, TEAMS, picksLockedForWeek, type PickStatus } from '@/lib/league/store'
+import { useLeague, TEAMS, type PickStatus } from '@/lib/league/store'
 import { cn } from '@/lib/utils'
 import { CheckCircle2, XCircle, MinusCircle, Clock, AlertTriangle, ChevronRight } from 'lucide-react'
 
@@ -25,7 +25,7 @@ function StatusIcon({ status }: { status: PickStatus }) {
 }
 
 export function PicksTicker() {
-  const { sim, myEntry, isSlatePublished, pickStatus } = useLeague()
+  const { sim, myEntry, isSlatePublished, pickStatus, weekLocked } = useLeague()
   const pathname = usePathname()
 
   if (pathname === '/picks') return null
@@ -35,7 +35,7 @@ export function PicksTicker() {
   const entry = myEntry(week)
 
   if (slateLive && !entry) {
-    const locked = picksLockedForWeek(sim.day)
+    const locked = weekLocked
     return (
       <Link
         href="/picks"

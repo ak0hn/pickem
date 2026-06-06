@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { Shell } from '@/components/app/Shell'
 import { TeamBadge } from '@/components/app/TeamBadge'
 import { Button } from '@/components/ui/button'
-import { useLeague, TEAMS, picksLockedForWeek } from '@/lib/league/store'
+import { useLeague, TEAMS } from '@/lib/league/store'
 import type { Pick, PickSide } from '@/lib/league/types'
 import { cn } from '@/lib/utils'
 import { Lock, CheckCircle2, Clock } from 'lucide-react'
@@ -23,11 +23,11 @@ function fmtSpread(n: number) {
 }
 
 export default function PicksPage() {
-  const { games, sim, submitMyPicks, myEntry, isSlatePublished } = useLeague()
+  const { games, sim, submitMyPicks, myEntry, isSlatePublished, weekLocked } = useLeague()
   const week = sim.currentWeek
   const wkGames = useMemo(() => games.filter((g) => g.week === week), [games, week])
   const existing = myEntry(week)
-  const locked = picksLockedForWeek(sim.day)
+  const locked = weekLocked
   const slateLive = isSlatePublished(week)
 
   const [picks, setPicks] = useState<Record<string, PickSide | undefined>>(() => {
