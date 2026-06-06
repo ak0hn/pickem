@@ -14,7 +14,8 @@ A mobile + web app for running an NFL pick'em league against the spread. Players
 - [x] GitHub repo created → `ak0hn/pickem`
 - [x] Development started — Phase 1 in progress (v1, parked on `main`)
 - [x] **v2 branch created** — Lovable UI prototype ported to Next.js, running locally on mock data
-- [ ] v2 backend wiring — Supabase + auth transplanted from v1
+- [x] **v2 backend wired** — real Supabase store, auth, migrations, picks API, commissioner server actions
+- [ ] Tiebreaker flow, results, mobile review, E2E tests
 - [ ] MVP shipped
 
 ## Target Launch
@@ -111,8 +112,8 @@ The app's value is the commissioner-controlled workflow for a specific group —
 6. ✅ **`/week` picks screen built** — two-half tap cards, submit-then-lock UX, post-submit view, team logos, day/time grouping, result cards
 7. ✅ **Commissioner page built** — full lifecycle (fetch lines → review slate → publish → submission tracker → post results → close week), league settings, player invites, dev tools
 8. ✅ **v2 reset** — orphan branch created, Lovable UI prototype built and ported to Next.js (Feed, Picks, Standings, Commissioner). Running locally at localhost:3000 on mock data.
-9. **Next session: Wire v2 backend** — transplant Supabase schema/migrations, auth (Google OAuth), Supabase client config, and API routes from v1 into v2. Replace mock `LeagueProvider` store with real Supabase queries.
-10. **Then: Tiebreaker flow** — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
+9. ✅ **v2 backend wired** — `LeagueProvider` replaced with real Supabase fetches. Auth (Google + email), middleware, picks API, commissioner server actions (pullLines, publishSlate, updateSpread), migrations ported. Zero TS errors.
+10. **Next session: E2E test the full flow** — sign in, pull lines as commissioner, publish slate, make picks as player, verify data in DB. Then tiebreaker flow. — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
 11. **Then: Results + standings** — result polling, pick scoring, standings with real data
 12. **Then: Mobile UI review** — test on real device
 13. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings
