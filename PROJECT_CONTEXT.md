@@ -54,6 +54,7 @@ Single league only (for Alex's group). Designed with multi-league architecture i
 | Results gate | Commissioner announcement | Results not final until commissioner posts official results announcement |
 | MNF tiebreaker | V1, commissioner-controlled threshold | Fixed for season; triggers if Sunday winners exceed threshold; commissioner posts MNF line for eligible players |
 | Pre-SNF update | Recurring commissioner touchpoint | Commissioner posts mid-week update highlighting who's still perfect before SNF |
+| Auth method | Magic link (passwordless) + Google OAuth | No password creation, no password reset flow, works on any device/email provider. Google OAuth stays as fast lane for Gmail users. Display name + avatar social linking deferred to Auth & Onboarding epic (PA-13). |
 
 ## Documents
 | File | Description |
@@ -123,6 +124,33 @@ The app ships as a **Progressive Web App** — one codebase that covers all surf
 
 ---
 
+## Development Workflow
+
+This project now uses the full Notion → Jira → GitHub → QA → Deploy workflow. See `CLAUDE/Tools/Dev_Workflow.md`.
+
+- **Notion:** PRDs live at Projects/PRDs → PickEm → Commissioner / GM / Shared
+- **Jira:** PickEm App project (key: PA) at alexanderkoh.atlassian.net. 13 epics created (PA-3 through PA-15).
+- **Process:** Test current state first → draft epic PRD → Claude creates story tickets → sprint → build → QA → deploy
+
+**Epic development order** (mirrors the game week sequence — each epic sets up state for the next):
+1. Commish: Opening the Week (PA-3)
+2. GM: Pick Submission (PA-8)
+3. Commish: Mid-Week (PA-4)
+4. Commish: Closing the Week (PA-5)
+5. GM: Post-Week / Results (PA-9)
+6. GM: Standings (PA-11)
+7. Feed & Social (PA-12)
+8. Auth & Onboarding (PA-13)
+9. Commish: League Management (PA-7)
+10. Mobile Polish (PA-14)
+11. MLB Beta Prep (PA-15)
+12. Commish: Tiebreaker Flow (PA-6) — most complex, tackle last
+13. GM: Tiebreaker Pick (PA-10) — tackle alongside PA-6
+
+**Current status:** Alex testing current app state before drafting first epic PRD (Commish: Opening the Week).
+
+---
+
 ## Next Steps
 1. ✅ PRD written and iterated — v1.3 current
 2. ✅ Tech stack decided — Next.js + Supabase + Vercel, PWA, mobile-first design
@@ -133,12 +161,13 @@ The app ships as a **Progressive Web App** — one codebase that covers all surf
 7. ✅ **Commissioner page built** — full lifecycle (fetch lines → review slate → publish → submission tracker → post results → close week), league settings, player invites, dev tools
 8. ✅ **v2 reset** — orphan branch created, Lovable UI prototype built and ported to Next.js (Feed, Picks, Standings, Commissioner). Running locally at localhost:3000 on mock data.
 9. ✅ **v2 backend wired** — `LeagueProvider` replaced with real Supabase fetches. Auth (Google + email), middleware, picks API, commissioner server actions (pullLines, publishSlate, updateSpread), migrations ported. Zero TS errors.
-10. **Next session: PWA setup** — manifest.json, service worker, link in layout. Makes the app installable to home screen on iOS + Android.
-11. **Then: E2E test the full flow** — sign in, pull lines as commissioner, publish slate, make picks as player, verify data in DB.
-12. **Then: Tiebreaker flow** — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
-13. **Then: Results + standings** — result polling, pick scoring, standings with real data
-14. **Then: Mobile UI review** — test on real device
-15. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings
-16. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
-17. **Then: MLB controlled beta** — ~4–6 weeks of live testing with BIL + brothers before NFL season
-18. **Post-launch (parked): Capacitor iOS App Store wrapper** — only if players want App Store distribution; zero rewrite required
+10. ✅ **PWA setup done** — manifest.ts, service worker (`public/sw.js`), SW registration in layout, ImageResponse icons (icon.tsx, apple-icon.tsx), theme-color meta. App is installable to home screen on iOS + Android.
+11. ✅ **Auth: magic link** — passwordless email via `signInWithOtp`. Google OAuth stays. No passwords, no sign-up flow. Invite gate enforced in callback route (service role). Social linking deferred to Auth & Onboarding epic (PA-13).
+12. **Next: E2E test the full flow** — sign in, pull lines as commissioner, publish slate, make picks as player, verify data in DB.
+13. **Then: Tiebreaker flow** — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
+14. **Then: Results + standings** — result polling, pick scoring, standings with real data
+15. **Then: Mobile UI review** — test on real device
+16. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings
+17. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
+18. **Then: MLB controlled beta** — ~4–6 weeks of live testing with BIL + brothers before NFL season
+19. **Post-launch (parked): Capacitor iOS App Store wrapper** — only if players want App Store distribution; zero rewrite required

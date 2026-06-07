@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/client'
 import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
 
 const ERROR_MESSAGES: Record<string, string> = {
   no_invite: 'You need an invitation to join this league. Contact the commissioner.',
@@ -18,13 +17,10 @@ function LoginForm() {
   const error = searchParams.get('error')
   const token = searchParams.get('invite_token')
 
-  const [mode, setMode] = useState<'choose' | 'signin' | 'signup'>('choose')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [sent, setSent] = useState(false)
 
   async function signInWithGoogle() {
     const supabase = createClient()
@@ -32,69 +28,39 @@ function LoginForm() {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
   }
 
-  async function handleEmailSignIn(e: React.FormEvent) {
+  async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setFormError(null)
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setFormError('Invalid email or password.')
-      setLoading(false)
-      return
-    }
-    window.location.href = '/'
-  }
-
-  async function handleEmailSignUp(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setFormError(null)
-    const supabase = createClient()
-
-    const { data: invite } = await supabase
-      .from('invites')
-      .select('id')
-      .ilike('email', email.toLowerCase().trim())
-      .is('accepted_at', null)
-      .single()
-
-    if (!invite) {
-      setFormError("This email hasn't been invited to the league. Contact the commissioner.")
-      setLoading(false)
-      return
-    }
-
-    const { error } = await supabase.auth.signUp({
+    const redirectTo = `${window.location.origin}/api/auth/callback${token ? `?invite_token=${token}` : ''}`
+    const { error } = await supabase.auth.signInWithOtp({
       email: email.toLowerCase().trim(),
-      password,
-      options: {
-        data: { full_name: name },
-        emailRedirectTo: `${window.location.origin}/api/auth/callback`,
-      },
+      options: { emailRedirectTo: redirectTo },
     })
-
     if (error) {
       setFormError(error.message)
       setLoading(false)
       return
     }
-
-    setSuccessMessage('Check your email for a confirmation link. Click it to complete sign-up.')
+    setSent(true)
     setLoading(false)
   }
 
-  if (successMessage) {
+  if (sent) {
     return (
       <div className="text-center">
         <div className="text-4xl mb-4">📬</div>
-        <h2 className="font-display text-xl mb-2">Check your email</h2>
-        <p className="text-muted-foreground text-sm">{successMessage}</p>
+        <h2 className="font-display text-xl mb-2">Check your inbox</h2>
+        <p className="text-muted-foreground text-sm">
+          We sent a sign-in link to <strong className="text-foreground">{email}</strong>.<br />
+          Click it to sign in — no password needed.
+        </p>
         <button
-          onClick={() => { setSuccessMessage(null); setMode('choose') }}
+          onClick={() => { setSent(false); setEmail('') }}
           className="mt-6 text-sm text-muted-foreground hover:text-foreground"
         >
-          Back to sign in
+          Use a different email
         </button>
       </div>
     )
@@ -122,65 +88,35 @@ function LoginForm() {
         </div>
       )}
 
-      {mode === 'choose' && (
-        <div className="space-y-3">
-          <button
-            onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-foreground text-background font-semibold py-3 px-4 rounded-xl hover:opacity-90 transition-opacity"
-          >
-            <GoogleIcon />
-            Continue with Google
-          </button>
+      <div className="space-y-3">
+        <button
+          onClick={signInWithGoogle}
+          className="w-full flex items-center justify-center gap-3 bg-foreground text-background font-semibold py-3 px-4 rounded-xl hover:opacity-90 transition-opacity"
+        >
+          <GoogleIcon />
+          Continue with Google
+        </button>
 
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-muted-foreground text-xs">or</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => setMode('signin')}
-          >
-            Sign in with email
-          </Button>
-
-          <p className="text-center text-muted-foreground text-xs pt-2">
-            First time?{' '}
-            <button onClick={() => setMode('signup')} className="text-foreground hover:underline">
-              Create an account
-            </button>
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-muted-foreground text-xs">or</span>
+          <div className="flex-1 h-px bg-border" />
         </div>
-      )}
 
-      {mode === 'signin' && (
-        <form onSubmit={handleEmailSignIn} className="space-y-3">
-          <Input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="bg-surface" />
-          <Input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="bg-surface" />
-          <Button type="submit" disabled={loading} className="w-full font-display tracking-wide">
-            {loading ? 'Signing in...' : 'Sign in'}
+        <form onSubmit={handleMagicLink} className="space-y-3">
+          <Input
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+            className="bg-surface"
+          />
+          <Button type="submit" disabled={loading} variant="outline" className="w-full">
+            {loading ? 'Sending link...' : 'Send sign-in link →'}
           </Button>
-          <button type="button" onClick={() => { setMode('choose'); setFormError(null) }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
-            Back
-          </button>
         </form>
-      )}
-
-      {mode === 'signup' && (
-        <form onSubmit={handleEmailSignUp} className="space-y-3">
-          <Input type="text" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} required className="bg-surface" />
-          <Input type="email" placeholder="Email (must match your invite)" value={email} onChange={e => setEmail(e.target.value)} required className="bg-surface" />
-          <Input type="password" placeholder="Password (8+ characters)" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} className="bg-surface" />
-          <Button type="submit" disabled={loading} className="w-full font-display tracking-wide">
-            {loading ? 'Creating account...' : 'Create account'}
-          </Button>
-          <button type="button" onClick={() => { setMode('choose'); setFormError(null) }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
-            Back
-          </button>
-        </form>
-      )}
+      </div>
 
       <p className="text-center text-muted-foreground text-xs mt-8">
         Invite-only league. You must be invited by the commissioner.
