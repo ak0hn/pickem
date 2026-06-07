@@ -31,7 +31,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico' ||
     pathname === '/manifest.json' ||
-    pathname === '/sw.js'
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/sw.js' ||
+    pathname === '/icon' ||
+    pathname === '/apple-icon'
 
   if (!isPublic && !user) {
     const loginUrl = request.nextUrl.clone()
