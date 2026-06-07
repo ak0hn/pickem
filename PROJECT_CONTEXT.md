@@ -100,6 +100,26 @@ The app's value is the commissioner-controlled workflow for a specific group —
 | Push scoring | Configurable (win or tie) | League setting: push counts as correct pick or doesn't count. Default: tie (no credit). |
 | Wednesday preview | Matchups visible pre-spread | Players see matchups once commissioner runs "fetch" but picks don't open until commissioner publishes. |
 | Persistent header | Layout-level week bar | Always shows current week + open/pending status. Pick count shown only on picks page. |
+| Distribution | PWA (web + Add to Home Screen) | One codebase for desktop, mobile browser, and installable home screen app on iOS/Android. Updates deploy in seconds via Vercel — no App Store review. Capacitor wrapper for App Store listing is parked post-launch. |
+
+---
+
+## PWA Strategy (web + mobile, one codebase)
+
+The app ships as a **Progressive Web App** — one codebase that covers all surfaces:
+- **Desktop browser** → works like a website
+- **Mobile browser (iOS Safari, Android Chrome)** → mobile-optimized
+- **"Add to Home Screen"** on iOS/Android → installs like a native app (full-screen, app icon, no browser chrome)
+
+**Updates:** Deploying to Vercel pushes updates live in seconds — no App Store review, no user action. The service worker silently fetches new versions in the background. This is better than App Store for in-season patching.
+
+**iOS App Store (parked — revisit post-launch):** If we ever want a true App Store listing, the path is **Capacitor** — it wraps the existing Next.js app in a native shell and produces an App Store binary with zero rewrite. Park until after the MLB beta proves the product works and players want a home screen icon they can't get themselves.
+
+**PWA setup still needed (next session):**
+- `public/manifest.json` — app name, icons, theme color, `display: standalone`
+- `public/sw.js` — service worker for offline + installability
+- `app/layout.tsx` — link the manifest
+- App icons (192×192 and 512×512 PNG) — can use a simple placeholder initially
 
 ---
 
@@ -113,9 +133,12 @@ The app's value is the commissioner-controlled workflow for a specific group —
 7. ✅ **Commissioner page built** — full lifecycle (fetch lines → review slate → publish → submission tracker → post results → close week), league settings, player invites, dev tools
 8. ✅ **v2 reset** — orphan branch created, Lovable UI prototype built and ported to Next.js (Feed, Picks, Standings, Commissioner). Running locally at localhost:3000 on mock data.
 9. ✅ **v2 backend wired** — `LeagueProvider` replaced with real Supabase fetches. Auth (Google + email), middleware, picks API, commissioner server actions (pullLines, publishSlate, updateSpread), migrations ported. Zero TS errors.
-10. **Next session: E2E test the full flow** — sign in, pull lines as commissioner, publish slate, make picks as player, verify data in DB. Then tiebreaker flow. — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
-11. **Then: Results + standings** — result polling, pick scoring, standings with real data
-12. **Then: Mobile UI review** — test on real device
-13. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings
-14. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
-15. **Then: MLB controlled beta** — ~4–6 weeks of live testing with BIL + brothers before NFL season
+10. **Next session: PWA setup** — manifest.json, service worker, link in layout. Makes the app installable to home screen on iOS + Android.
+11. **Then: E2E test the full flow** — sign in, pull lines as commissioner, publish slate, make picks as player, verify data in DB.
+12. **Then: Tiebreaker flow** — MNF tiebreaker screen (Lovable built it wrong — MNF currently shows in regular slate; correct implementation uses v1 spec)
+13. **Then: Results + standings** — result polling, pick scoring, standings with real data
+14. **Then: Mobile UI review** — test on real device
+15. **Then: Playwright E2E tests** — commissioner flow, player pick flow, results/standings
+16. **Then: MLB beta prep** — sport config variable, MLB team data, moneyline pick format, in-app bug report button
+17. **Then: MLB controlled beta** — ~4–6 weeks of live testing with BIL + brothers before NFL season
+18. **Post-launch (parked): Capacitor iOS App Store wrapper** — only if players want App Store distribution; zero rewrite required
