@@ -20,7 +20,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const { sim } = useLeague()
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
+    <div className={cn('min-h-screen bg-background text-foreground', process.env.NODE_ENV === 'development' ? 'pb-44' : 'pb-6')}>
       <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">

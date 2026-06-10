@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { TEAMS } from './data'
+import { TEAMS, normalizeTeam } from './data'
 import type { DayOfWeek, Game, GMEntry, GM, FeedItem, Pick, PickSide, FeedComment, GameSlot } from './types'
 
 // ── Re-exports pages depend on ────────────────────────────────────────────────
@@ -57,8 +57,8 @@ function dbGameToMock(g: any, weekNumber: number): Game {
     week: weekNumber,
     slot: dayToSlot(g.day, g.kickoff_time),
     kickoff: g.kickoff_time,
-    homeTeamId: g.home_team,
-    awayTeamId: g.away_team,
+    homeTeamId: normalizeTeam(g.home_team),
+    awayTeamId: normalizeTeam(g.away_team),
     spread,
     finalAtsWinnerTeamId,
   }
@@ -143,6 +143,8 @@ type LeagueState = {
   weekLocked: boolean
   activeWeek: DbWeek | null
   sim: { currentWeek: number; day: DayOfWeek }
+  devSimDay: DayOfWeek | null
+  setDevSimDay: (day: DayOfWeek | null) => void
 
   myEntry: (week: number) => GMEntry | undefined
   isSlatePublished: (week: number) => boolean
@@ -179,6 +181,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const [isCommissioner, setIsCommissioner] = useState(false)
   const [activeWeek, setActiveWeek] = useState<DbWeek | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [devSimDay, setDevSimDay] = useState<DayOfWeek | null>(null)
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
 
@@ -314,8 +317,8 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const weekLocked = activeWeek ? activeWeek.status !== 'open' : false
 
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-  const day = DAY_NAMES[new Date().getDay()] as DayOfWeek
-  const sim = { currentWeek, day }
+  const realDay = DAY_NAMES[new Date().getDay()] as DayOfWeek
+  const sim = { currentWeek, day: devSimDay ?? realDay }
 
   // ── Methods ───────────────────────────────────────────────────────────────────
   function myEntry(week: number): GMEntry | undefined {
@@ -415,6 +418,8 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     weekLocked,
     activeWeek,
     sim,
+    devSimDay,
+    setDevSimDay,
     myEntry,
     isSlatePublished,
     getSlateStatus,

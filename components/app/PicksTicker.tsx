@@ -79,6 +79,7 @@ export function PicksTicker() {
             const pickedId = p.side === 'HOME' ? game.homeTeamId : game.awayTeamId
             const spread = p.side === 'HOME' ? game.spread : -game.spread
             const team = TEAMS[pickedId]
+            if (!team) return null
             return (
               <div
                 key={p.gameId}
