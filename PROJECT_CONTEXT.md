@@ -129,7 +129,7 @@ The app ships as a **Progressive Web App** — one codebase that covers all surf
 This project now uses the full Notion → Jira → GitHub → QA → Deploy workflow. See `CLAUDE/Tools/Dev_Workflow.md`.
 
 - **Notion:** PRDs live at Projects/PRDs → PickEm → Commissioner / GM / Shared
-- **Jira:** PickEm App project (key: PA) at alexanderkoh.atlassian.net. 13 epics created (PA-3 through PA-15).
+- **Jira:** PickEm App project (key: PA), tracked in the team's Jira workspace. 13 epics created (PA-3 through PA-15).
 - **Process:** Test current state first → draft epic PRD → Claude creates story tickets → sprint → build → QA → deploy
 
 **Epic development order** (mirrors the game week sequence — each epic sets up state for the next):
